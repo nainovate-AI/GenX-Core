@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "data_preparation"
+    static_configs:
+      - targets: ["data_preparation:9090"]
+  - job_name: "embedding"
+    static_configs:
+      - targets: ["embedding:9092"]
+  - job_name: "model_loading"
+    static_configs:
+      - targets: ["model_loading:9093"]
+  - job_name: "vector_store"
+    static_configs:
+      - targets: ["vector_store:9094"]
+  - job_name: "retrieval"
+    static_configs:
+      - targets: ["retrieval:9095"]

@@ -1,0 +1,173 @@
+version: '3.8'
+services:
+  tempo:
+    image: grafana/tempo:latest
+    ports:
+      - "3200:3200"  # Tempo UI
+      - "4317:4317"  # OTLP gRPC
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./configs/tempo.yaml:/etc/tempo.yaml
+    networks:
+      - monitoring-network
+
+  loki:
+    image: grafana/loki:2.9.4 
+    ports:
+      - "3100:3100"  # Loki API
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./configs/loki.yaml:/etc/loki/loki.yaml
+      - ./loki-data:/loki
+    networks:
+      - monitoring-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"  # Prometheus UI
+    volumes:
+      - ./configs/prometheus.yaml:/etc/prometheus/prometheus.yml
+    networks:
+      - monitoring-network
+  
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    ports:
+      - "3003:3003"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_HTTP_PORT=3003
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring-network
+  
+  mongo:
+    image: mongo:latest
+    container_name: my-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - /Users/apple/Desktop/Projects/Platform/ai-db-bucket/mongo/db/mongo-data:/db/mongo-data
+      - /Users/apple/Desktop/Projects/Platform/ai-db-bucket/mongo/db/mongo-config:/db/mongo-config
+    networks:
+      - monitoring-network
+  
+  mongotest2:
+    image: mongo:latest
+    container_name: my-mongodb-test2
+    restart: always
+    ports:
+      - "27019:27017"
+    volumes:
+      - /Users/apple/Desktop/Projects/Platform/ai-db-bucket/mongo/db/mongo-data:/db/mongo-data
+      - /Users/apple/Desktop/Projects/Platform/ai-db-bucket/mongo/db/mongo-config:/db/mongo-config
+    networks:
+      - monitoring-network
+  
+  qdrant:
+    image: qdrant/qdrant:v1.12.0
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    networks:
+      - monitoring-network
+
+  data_preparation:
+    build:
+      context: .
+      dockerfile: core_services/data_preparation/Dockerfile
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./protos:/app/protos
+      - ./data:/data
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - LOKI_ENDPOINT=http://loki:3100
+    networks:
+      - monitoring-network
+  
+  vector_store:
+    build:
+      context: .
+      dockerfile: core_services/vector_store/Dockerfile
+    ports:
+      - "50054:50054"
+      - "9094:9094"
+    depends_on:
+      - qdrant
+      - loki
+      - tempo
+      - prometheus
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+    networks:
+      - monitoring-network
+
+  retrieval:
+    build:
+      context: .
+      dockerfile: core_services/retrieval/Dockerfile
+    ports:
+      - "50055:50055"
+      - "9095:9095"
+    depends_on:
+      - qdrant
+      - loki
+      - tempo
+      - prometheus
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+    networks:
+      - monitoring-network
+  
+  model_loading:
+    build:
+      context: .
+      dockerfile: core_services/model_loading/Dockerfile
+    ports:
+      - "50053:50053"
+      - "9093:9093"
+    depends_on:
+      - loki
+      - tempo
+      - prometheus
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+    networks:
+      - monitoring-network
+  
+  embedding:
+    build:
+      context: .
+      dockerfile: core_services/embedding/Dockerfile
+    ports:
+      - "50052:50052"
+      - "9092:9092"
+    depends_on:
+      - mongo
+      - qdrant
+      - model_loading
+      - loki
+      - tempo
+      - prometheus
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+    networks:
+      - monitoring-network
+
+networks:
+  monitoring-network:
+    driver: bridge

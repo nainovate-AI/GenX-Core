@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package genx;
+
+service RetrievalService {
+  rpc SearchVectors(SearchVectorsRequest) returns (SearchVectorsResponse) {}
+}
+
+message SearchVectorsRequest {
+  string collection_id = 1;
+  repeated float query_vector = 2;
+  int32 top_k = 3;
+}
+
+message SearchVectorsResponse {
+  string status = 1;
+  repeated SearchResult results = 2;
+  string error = 3;
+}
+
+message SearchResult {
+  string document_id = 1;
+  float score = 2;
+  map<string, string> payload = 3;
+}
