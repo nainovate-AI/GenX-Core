@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: genx-llm-loader
+  namespace: genx
+spec:
+  selector:
+    app: genx-llm-loader
+  ports:
+  - protocol: TCP
+    port: 50051
+    targetPort: 50051
+  type: ClusterIP
