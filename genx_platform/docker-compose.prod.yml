@@ -1,0 +1,220 @@
+version: '3.8'
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+    labels: "service,environment"
+
+services:
+  # LLM Service
+  llm-service:
+    build:
+      context: .
+      dockerfile: genx_components/microservices/llm/Dockerfile.prod
+      target: production
+      args:
+        PYTHON_VERSION: 3.10
+        DEBIAN_VERSION: slim-bookworm
+    image: genx-platform/llm-service:${VERSION:-latest}
+    container_name: genx-llm-service
+    hostname: llm-service
+    environment:
+      # Service configuration
+      SERVICE_NAME: llm-service
+      SERVICE_PORT: 50053
+      SERVICE_VERSION: ${VERSION:-latest}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      
+      # Model configuration
+      DEFAULT_MODEL_ID: ${DEFAULT_MODEL_ID:-gpt2}
+      BACKEND_TYPE: ${BACKEND_TYPE:-transformers}
+      MODEL_CACHE_DIR: /models
+      
+      # Telemetry
+      TELEMETRY_ENABLED: "true"
+      TELEMETRY_ENDPOINT: http://otel-collector:4317
+      METRICS_PORT: 9090
+      
+      # Performance
+      GRPC_MAX_WORKERS: ${GRPC_MAX_WORKERS:-10}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-10}
+      
+      # Python optimizations
+      PYTHONUNBUFFERED: 1
+      PYTHONDONTWRITEBYTECODE: 1
+      
+    ports:
+      - "${LLM_SERVICE_PORT:-50053}:50053"
+      - "${LLM_METRICS_PORT:-9091}:9090"
+    volumes:
+      - model-cache:/models:ro
+      - hf-cache:/cache
+      - ./configs/llm-service.env:/app/.env:ro
+    networks:
+      - genx-network
+    deploy:
+      resources:
+        limits:
+          cpus: ${LLM_CPU_LIMIT:-4}
+          memory: ${LLM_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: ${LLM_CPU_RESERVATION:-2}
+          memory: ${LLM_MEMORY_RESERVATION:-4G}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:unconfined  # Needed for some ML libraries
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+
+  # OpenTelemetry Collector with health check
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: genx-otel-collector
+    hostname: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./configs/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+    networks:
+      - genx-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Production-ready Prometheus
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: genx-prometheus
+    hostname: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./configs/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - genx-network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Production Grafana
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: genx-grafana
+    hostname: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - genx-network
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - prometheus
+      - loki
+
+  # Production Jaeger
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: genx-jaeger
+    hostname: jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: elasticsearch
+      ES_SERVER_URLS: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      LOG_LEVEL: ${JAEGER_LOG_LEVEL:-info}
+    ports:
+      - "16686:16686"  # UI
+      - "14250:14250"  # gRPC
+    networks:
+      - genx-network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Loki for logs
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: genx-loki
+    hostname: loki
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./configs/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - genx-network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Promtail for log collection
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: genx-promtail
+    hostname: promtail
+    volumes:
+      - ./configs/promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - genx-network
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - loki
+
+networks:
+  genx-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  model-cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${MODEL_CACHE_PATH:-./models}
+  hf-cache:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local

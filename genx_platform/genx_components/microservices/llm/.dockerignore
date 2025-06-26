@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Development
+.git/
+.gitignore
+.env
+*.env
+!envs/*.env
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests (exclude from production)
+tests/
+test_*.py
+*_test.py
+
+# Documentation
+*.md
+docs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.whl
+
+# K8s and Docker files (they're already in context)
+k8s/
+Dockerfile
+.dockerignore
+Makefile
+
+# Models (will be mounted as volume)
+models/
+*.bin
+*.safetensors
+
+# Don't ignore scripts directory
+!scripts/

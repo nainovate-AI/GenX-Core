@@ -1,0 +1,39 @@
+# Core gRPC dependencies
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+grpcio-health-checking>=1.60.0
+grpcio-reflection>=1.60.0
+
+# Protocol Buffers
+protobuf>=4.25.0
+
+# Configuration and validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0  # Add this line
+python-dotenv>=1.0.0
+
+# OpenTelemetry for observability
+opentelemetry-api>=1.22.0
+opentelemetry-sdk>=1.22.0
+opentelemetry-instrumentation>=0.43b0
+opentelemetry-instrumentation-grpc>=0.43b0
+opentelemetry-exporter-otlp>=1.22.0
+
+# ML/AI dependencies
+transformers>=4.36.0
+mlx
+mlx-llm
+mlx-lm
+torch>=2.0.0
+tokenizers>=0.15.0
+accelerate>=0.25.0
+
+# System monitoring
+psutil>=5.9.0
+
+# Async supporta
+asyncio>=3.4.3
+
+# Testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.23.0

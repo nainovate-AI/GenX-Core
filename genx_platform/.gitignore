@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+*.env
+
+# Generated
+*_pb2.py
+*_pb2_grpc.py
+*.pb.go
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db

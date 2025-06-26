@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+# Override for dev
+replicas:
+  - name: llm-service
+    count: 1
+
+configMapGenerator:
+  - name: llm-service-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - DEFAULT_MODEL_ID=distilgpt2
+
+images:
+  - name: llm-service
+    newTag: latest-dev

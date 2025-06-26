@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  llm-service:
+    image: ${REGISTRY}/llm-service:${VERSION:-latest}
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    environment:
+      - ENVIRONMENT=production
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:unconfined
+    read_only: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"

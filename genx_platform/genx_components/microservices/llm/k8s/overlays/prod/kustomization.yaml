@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+# Override for production
+replicas:
+  - name: llm-service
+    count: 3
+
+configMapGenerator:
+  - name: llm-service-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+      - DEFAULT_MODEL_ID=gpt2-medium
+
+images:
+  - name: llm-service
+    newTag: latest-prod
+
+patchesStrategicMerge:
+  - resources.yaml

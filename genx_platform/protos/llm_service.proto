@@ -1,0 +1,259 @@
+syntax = "proto3";
+
+package genx.llm.v1;
+
+option go_package = "github.com/genx/platform/api/llm/v1;llmv1";
+option java_multiple_files = true;
+option java_package = "com.genx.platform.api.llm.v1";
+
+import "common.proto";
+import "google/protobuf/struct.proto";
+
+// LLM service for text generation
+service LLMService {
+  // Generate text completion
+  rpc Generate(GenerateRequest) returns (GenerateResponse);
+  
+  // Stream text generation
+  rpc StreamGenerate(GenerateRequest) returns (stream StreamGenerateResponse);
+  
+  // Get available models
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  
+  // Get model information
+  rpc GetModel(GetModelRequest) returns (GetModelResponse);
+  
+  // Validate prompt (safety, token count, etc.)
+  rpc ValidatePrompt(ValidatePromptRequest) returns (ValidatePromptResponse);
+}
+
+// Generation parameters
+message GenerationConfig {
+  // Maximum tokens to generate
+  int32 max_tokens = 1;
+  
+  // Temperature for sampling (0.0 - 2.0)
+  float temperature = 2;
+  
+  // Top-p sampling parameter
+  float top_p = 3;
+  
+  // Top-k sampling parameter
+  int32 top_k = 4;
+  
+  // Repetition penalty
+  float repetition_penalty = 5;
+  
+  // Stop sequences
+  repeated string stop_sequences = 6;
+  
+  // Number of sequences to generate
+  int32 num_return_sequences = 7;
+  
+  // Random seed for reproducibility
+  optional int32 seed = 8;
+  
+  // Response format (text, json, etc.)
+  string response_format = 9;
+  
+  // Additional provider-specific parameters
+  google.protobuf.Struct extra_params = 10;
+}
+
+// Generate request
+message GenerateRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Input prompt
+  string prompt = 2;
+  
+  // Model to use (optional, uses default if not specified)
+  string model_id = 3;
+  
+  // Generation configuration
+  GenerationConfig config = 4;
+  
+  // System prompt (for chat models)
+  optional string system_prompt = 5;
+  
+  // Conversation history (for context)
+  repeated Message messages = 6;
+}
+
+// Message in conversation
+message Message {
+  // Role (system, user, assistant)
+  string role = 1;
+  
+  // Message content
+  string content = 2;
+  
+  // Message metadata
+  map<string, string> metadata = 3;
+}
+
+// Generate response
+message GenerateResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Generated text
+  string text = 2;
+  
+  // Alternative generations (if num_return_sequences > 1)
+  repeated string alternatives = 3;
+  
+  // Token usage
+  genx.common.v1.TokenUsage usage = 4;
+  
+  // Model used
+  string model_id = 5;
+  
+  // Finish reason (e.g., "stop", "length", "content_filter")
+  string finish_reason = 6;
+  
+  // Safety scores (if applicable)
+  map<string, float> safety_scores = 7;
+  
+  // Error (if any)
+  optional genx.common.v1.ErrorDetail error = 8;
+}
+
+// Streaming response
+message StreamGenerateResponse {
+  // Response metadata (sent in first message)
+  optional genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Text delta
+  string delta = 2;
+  
+  // Cumulative text (optional)
+  optional string cumulative_text = 3;
+  
+  // Is this the final chunk?
+  bool is_final = 4;
+  
+  // Token usage (sent in final message)
+  optional genx.common.v1.TokenUsage usage = 5;
+  
+  // Finish reason (sent in final message)
+  optional string finish_reason = 6;
+  
+  // Error (if any)
+  optional genx.common.v1.ErrorDetail error = 7;
+}
+
+// List models request
+message ListModelsRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Filter by capabilities
+  repeated string capabilities = 2;
+  
+  // Filter by provider
+  optional string provider = 3;
+  
+  // Include hardware requirements
+  bool include_requirements = 4;
+}
+
+// List models response
+message ListModelsResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Available models
+  repeated genx.common.v1.ModelInfo models = 2;
+  
+  // Default model ID
+  string default_model_id = 3;
+}
+
+// Get model request
+message GetModelRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Model ID
+  string model_id = 2;
+}
+
+// Get model response
+message GetModelResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Model information
+  genx.common.v1.ModelInfo model = 2;
+  
+  // Model status
+  ModelStatus status = 3;
+}
+
+// Model status
+message ModelStatus {
+  // Is model loaded and ready?
+  bool is_loaded = 1;
+  
+  // Is model available for use?
+  bool is_available = 2;
+  
+  // Current load on the model (0.0 - 1.0)
+  float current_load = 3;
+  
+  // Error message if not available
+  optional string error_message = 4;
+}
+
+// Validate prompt request
+message ValidatePromptRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Prompt to validate
+  string prompt = 2;
+  
+  // Model to validate against
+  string model_id = 3;
+  
+  // Include token count
+  bool count_tokens = 4;
+  
+  // Check safety
+  bool check_safety = 5;
+}
+
+// Validate prompt response
+message ValidatePromptResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Is prompt valid?
+  bool is_valid = 2;
+  
+  // Validation issues
+  repeated ValidationIssue issues = 3;
+  
+  // Token count (if requested)
+  optional int32 token_count = 4;
+  
+  // Safety scores (if requested)
+  map<string, float> safety_scores = 5;
+}
+
+// Validation issue
+message ValidationIssue {
+  // Issue type (e.g., "TOO_LONG", "UNSAFE_CONTENT")
+  string type = 1;
+  
+  // Issue severity (e.g., "WARNING", "ERROR")
+  string severity = 2;
+  
+  // Issue message
+  string message = 3;
+  
+  // Additional details
+  google.protobuf.Struct details = 4;
+}

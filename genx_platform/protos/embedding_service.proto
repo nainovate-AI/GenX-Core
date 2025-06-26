@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package genx.embedding.v1;
+
+option go_package = "github.com/genx/platform/api/embedding/v1;embeddingv1";
+option java_multiple_files = true;
+option java_package = "com.genx.platform.api.embedding.v1";
+
+import "common.proto";
+
+// Embedding service for text vectorization
+service EmbeddingService {
+  // Generate embeddings for single text
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+  
+  // Generate embeddings for multiple texts (batch)
+  rpc BatchEmbed(BatchEmbedRequest) returns (BatchEmbedResponse);
+  
+  // Get available embedding models
+  rpc ListModels(ListEmbeddingModelsRequest) returns (ListEmbeddingModelsResponse);
+}
+
+// Embed request
+message EmbedRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Text to embed
+  string text = 2;
+  
+  // Model to use (optional)
+  string model_id = 3;
+  
+  // Normalize embeddings
+  bool normalize = 4;
+  
+  // Truncate if too long
+  bool truncate = 5;
+}
+
+// Embed response
+message EmbedResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Embedding vector
+  repeated float embedding = 2;
+  
+  // Model used
+  string model_id = 3;
+  
+  // Embedding dimension
+  int32 dimension = 4;
+  
+  // Token count
+  int32 token_count = 5;
+  
+  // Error (if any)
+  optional genx.common.v1.ErrorDetail error = 6;
+}
+
+// Batch embed request
+message BatchEmbedRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Texts to embed
+  repeated string texts = 2;
+  
+  // Model to use
+  string model_id = 3;
+  
+  // Normalize embeddings
+  bool normalize = 4;
+  
+  // Truncate if too long
+  bool truncate = 5;
+  
+  // Batch size for processing
+  int32 batch_size = 6;
+}
+
+// Batch embed response
+message BatchEmbedResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Embeddings for each text
+  repeated EmbeddingResult embeddings = 2;
+  
+  // Model used
+  string model_id = 3;
+  
+  // Embedding dimension
+  int32 dimension = 4;
+  
+  // Total token count
+  int32 total_tokens = 5;
+}
+
+// Individual embedding result
+message EmbeddingResult {
+  // Original text index
+  int32 index = 1;
+  
+  // Embedding vector
+  repeated float embedding = 2;
+  
+  // Token count for this text
+  int32 token_count = 3;
+  
+  // Error for this specific text (if any)
+  optional genx.common.v1.ErrorDetail error = 4;
+}
+
+// List embedding models request
+message ListEmbeddingModelsRequest {
+  // Request metadata
+  genx.common.v1.RequestMetadata metadata = 1;
+  
+  // Filter by dimension
+  optional int32 dimension = 2;
+  
+  // Filter by provider
+  optional string provider = 3;
+}
+
+// List embedding models response
+message ListEmbeddingModelsResponse {
+  // Response metadata
+  genx.common.v1.ResponseMetadata metadata = 1;
+  
+  // Available models
+  repeated EmbeddingModelInfo models = 2;
+  
+  // Default model ID
+  string default_model_id = 3;
+}
+
+// Embedding model information
+message EmbeddingModelInfo {
+  // Base model info
+  genx.common.v1.ModelInfo base_info = 1;
+  
+  // Embedding dimension
+  int32 dimension = 2;
+  
+  // Maximum input length
+  int32 max_length = 3;
+  
+  // Supported text types
+  repeated string supported_types = 4;
+}

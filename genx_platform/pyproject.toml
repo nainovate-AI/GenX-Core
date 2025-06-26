@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "genx-platform"
+version = "0.1.0"
+description = "GenX Enterprise GenAI Platform"
+authors = ["Your Team <team@company.com>"]
+readme = "README.md"
+python = "^3.9"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+grpcio = "^1.60.0"
+grpcio-tools = "^1.60.0"
+protobuf = "^4.25.0"
+pydantic = "^2.5.0"
+opentelemetry-api = "^1.22.0"
+opentelemetry-sdk = "^1.22.0"
+opentelemetry-instrumentation = "^0.43b0"
+grpcio-health-checking = "^1.60.0"
+grpcio-reflection = "^1.60.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100

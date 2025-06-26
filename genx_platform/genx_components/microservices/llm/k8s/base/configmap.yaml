@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-service-config
+data:
+  SERVICE_NAME: llm-service
+  SERVICE_PORT: "50053"

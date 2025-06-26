@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  llm-service:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.dev  # Dev image
+      target: development
+    volumes:
+      - ../../../genx_components:/app/genx_components  # Hot reload
+      - ./models:/models
+    ports:
+      - "50053:50053"
+      - "9090:9090"
+      - "5678:5678"  # Debugger port
+    environment:
+      - ENVIRONMENT=development
+      - RELOAD=true  # Auto-reload on code changes
+    command: ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "start_service.py"]
