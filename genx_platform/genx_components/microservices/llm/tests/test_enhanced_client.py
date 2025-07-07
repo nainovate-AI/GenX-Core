@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Add project root to path
 current_dir = Path(__file__).parent
-project_root = current_dir.parent.parent.parent
+project_root = current_dir.parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from genx_components.common.grpc import common_pb2
@@ -24,7 +24,7 @@ from genx_components.microservices.grpc import (
 
 async def test_model_management():
     """Test model loading and management APIs"""
-    channel = grpc.aio.insecure_channel('localhost:50053')
+    channel = grpc.aio.insecure_channel('localhost:50051')
     stub = llm_service_pb2_grpc.LLMServiceStub(channel)
     
     print("\n" + "="*60)
@@ -129,7 +129,7 @@ async def test_model_management():
 
 async def test_text_generation(model_id: str):
     """Test text generation APIs"""
-    channel = grpc.aio.insecure_channel('localhost:50053')
+    channel = grpc.aio.insecure_channel('localhost:50051')
     stub = llm_service_pb2_grpc.LLMServiceStub(channel)
     
     print("\n" + "="*60)
@@ -302,7 +302,7 @@ async def test_text_generation(model_id: str):
 
 async def test_model_cleanup(model_id: str):
     """Test model unloading"""
-    channel = grpc.aio.insecure_channel('localhost:50053')
+    channel = grpc.aio.insecure_channel('localhost:50051')
     stub = llm_service_pb2_grpc.LLMServiceStub(channel)
     
     print("\n" + "="*60)
@@ -334,7 +334,7 @@ async def main():
     print("\n" + "="*60)
     print("Enhanced LLM Service Test Client")
     print("="*60)
-    print("Make sure the LLM service is running on localhost:50053")
+    print("Make sure the LLM service is running on localhost:50051")
     
     # Wait for service to be ready
     await asyncio.sleep(2)

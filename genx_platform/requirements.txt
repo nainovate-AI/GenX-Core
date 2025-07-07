@@ -21,12 +21,13 @@ opentelemetry-exporter-otlp>=1.22.0
 
 # ML/AI dependencies
 transformers>=4.36.0
-mlx
-mlx-llm
-mlx-lm
 torch>=2.0.0
 tokenizers>=0.15.0
 accelerate>=0.25.0
+
+# mlx # uncomment for mac
+# mlx-llm # uncomment for mac
+# mlx-lm # uncomment for mac
 
 # System monitoring
 psutil>=5.9.0

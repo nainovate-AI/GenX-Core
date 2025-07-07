@@ -327,6 +327,21 @@ class ModelManager:
         if user_id in self._user_history:
             del self._user_history[user_id]
     
+    async def preload_models(self, model_ids: List[str]):
+        """Preload a list of models - used during service startup"""
+        for model_id in model_ids:
+            try:
+                logger.info(f"Preloading model: {model_id}")
+                # Use default backend and auto device for preloading
+                await self.load_model(
+                    model_name=model_id,
+                    backend=self.config.get('backend_type', 'transformers'),
+                    device='auto'
+                )
+            except Exception as e:
+                logger.error(f"Failed to preload model {model_id}: {e}")
+                # Continue with other models even if one fails
+    
     async def cleanup_all(self):
         """Cleanup all loaded models"""
         logger.info("Cleaning up all models")
@@ -336,3 +351,7 @@ class ModelManager:
             await self.unload_model(model_id)
         
         self._user_history.clear()
+    
+    async def list_loaded_models(self) -> List[str]:
+        """Get list of loaded model IDs"""
+        return list(self.models.keys())

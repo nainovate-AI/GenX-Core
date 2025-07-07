@@ -4,11 +4,12 @@ Enhanced LLM gRPC Service Implementation with Dynamic Model Management
 import logging
 import time
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from datetime import datetime
 import grpc
 from google.protobuf import timestamp_pb2
 from google.protobuf import struct_pb2
-from datetime import datetime 
+from contextlib import contextmanager
 
 from genx_components.common.grpc import common_pb2
 from genx_components.microservices.grpc import (
@@ -504,6 +505,263 @@ class LLMService(llm_service_pb2_grpc.LLMServiceServicer):
                 logger.error(f"StreamGenerateText failed: {e}")
                 yield self._create_stream_generate_text_error_response(str(e))
     
+    # ===================== Legacy APIs (for backward compatibility) =====================
+    
+    async def Generate(
+        self,
+        request: llm_service_pb2.GenerateRequest,
+        context: grpc.aio.ServicerContext
+    ) -> llm_service_pb2.GenerateResponse:
+        """Legacy generate method for backward compatibility"""
+        start_time = time.time()
+        request_id = request.metadata.request_id or str(uuid.uuid4())
+        
+        try:
+            # Get model
+            model_id = request.model_id if request.HasField('model_id') else None
+            backend = await self.model_manager.get_model(model_id)
+            
+            if not backend:
+                return llm_service_pb2.GenerateResponse(
+                    metadata=self._create_response_metadata(request_id, start_time),
+                    error=common_pb2.ErrorDetail(
+                        code="NOT_FOUND",
+                        message=f"Model {model_id or 'default'} not available"
+                    )
+                )
+            
+            # Convert config
+            config = GenerationConfig.from_proto(request.config) if request.HasField('config') else GenerationConfig()
+            
+            # Generate
+            result = await backend.generate(
+                prompt=request.prompt,
+                config=config,
+                system_prompt=request.system_prompt if request.HasField('system_prompt') else None,
+                messages=[{"role": m.role, "content": m.content} for m in request.messages] if request.messages else None
+            )
+            
+            return llm_service_pb2.GenerateResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                text=result['text'],
+                usage=common_pb2.TokenUsage(
+                    prompt_tokens=result['tokens_used']['prompt_tokens'],
+                    completion_tokens=result['tokens_used']['completion_tokens'],
+                    total_tokens=result['tokens_used']['total_tokens']
+                ),
+                model_id=model_id or self.model_manager.default_model_id,
+                finish_reason=result.get('finish_reason', 'stop')
+            )
+            
+        except Exception as e:
+            logger.error(f"Generate failed: {e}")
+            return llm_service_pb2.GenerateResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                error=common_pb2.ErrorDetail(code="INTERNAL", message=str(e))
+            )
+    
+    async def StreamGenerate(
+        self,
+        request: llm_service_pb2.GenerateRequest,
+        context: grpc.aio.ServicerContext
+    ) -> llm_service_pb2.StreamGenerateResponse:
+        """Legacy stream generate method for backward compatibility"""
+        try:
+            # Get model
+            model_id = request.model_id if request.HasField('model_id') else None
+            backend = await self.model_manager.get_model(model_id)
+            
+            if not backend:
+                yield llm_service_pb2.StreamGenerateResponse(
+                    error=common_pb2.ErrorDetail(
+                        code="NOT_FOUND",
+                        message=f"Model {model_id or 'default'} not available"
+                    ),
+                    is_final=True
+                )
+                return
+            
+            # Convert config
+            config = GenerationConfig.from_proto(request.config) if request.HasField('config') else GenerationConfig()
+            
+            # Stream generation
+            token_count = 0
+            async for chunk in backend.stream_generate(
+                prompt=request.prompt,
+                config=config,
+                system_prompt=request.system_prompt if request.HasField('system_prompt') else None,
+                messages=[{"role": m.role, "content": m.content} for m in request.messages] if request.messages else None
+            ):
+                token_count += 1
+                yield llm_service_pb2.StreamGenerateResponse(
+                    delta=chunk,
+                    is_final=False
+                )
+            
+            # Final message with usage
+            prompt_tokens = await backend.count_tokens(request.prompt)
+            yield llm_service_pb2.StreamGenerateResponse(
+                is_final=True,
+                usage=common_pb2.TokenUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=token_count,
+                    total_tokens=prompt_tokens + token_count
+                ),
+                finish_reason="stop"
+            )
+            
+        except Exception as e:
+            logger.error(f"StreamGenerate failed: {e}")
+            yield llm_service_pb2.StreamGenerateResponse(
+                error=common_pb2.ErrorDetail(code="INTERNAL", message=str(e)),
+                is_final=True
+            )
+    
+    async def ListModels(
+        self,
+        request: llm_service_pb2.ListModelsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> llm_service_pb2.ListModelsResponse:
+        """List available models"""
+        start_time = time.time()
+        request_id = request.metadata.request_id or str(uuid.uuid4())
+        
+        try:
+            # Get loaded models info
+            info = await self.model_manager.get_loaded_models_info()
+            
+            # Convert to ModelInfo format
+            models = []
+            for model_info in info['models']:
+                model = common_pb2.ModelInfo(
+                    model_id=model_info['model_id'],
+                    provider=model_info['backend'],
+                    version="latest",
+                    capabilities=model_info.get('capabilities', {}).get('features', []),
+                    metadata={
+                        "device": model_info['device'],
+                        "status": "loaded" if model_info['status']['is_loaded'] else "unloaded"
+                    }
+                )
+                models.append(model)
+            
+            return llm_service_pb2.ListModelsResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                models=models,
+                default_model_id=self.model_manager.default_model_id
+            )
+            
+        except Exception as e:
+            logger.error(f"ListModels failed: {e}")
+            return llm_service_pb2.ListModelsResponse(
+                metadata=self._create_response_metadata(request_id, start_time)
+            )
+    
+    async def GetModel(
+        self,
+        request: llm_service_pb2.GetModelRequest,
+        context: grpc.aio.ServicerContext
+    ) -> llm_service_pb2.GetModelResponse:
+        """Get specific model information"""
+        start_time = time.time()
+        request_id = request.metadata.request_id or str(uuid.uuid4())
+        
+        try:
+            # Check if model is loaded
+            for model_id, loaded_model in self.model_manager.models.items():
+                if model_id == request.model_id:
+                    backend_info = loaded_model.backend.get_model_info()
+                    
+                    model = common_pb2.ModelInfo(
+                        model_id=model_id,
+                        provider=loaded_model.backend_type,
+                        version="latest",
+                        capabilities=backend_info.capabilities if backend_info else []
+                    )
+                    
+                    status = llm_service_pb2.ModelStatus(
+                        is_loaded=backend_info.is_loaded if backend_info else False,
+                        is_available=backend_info.is_available if backend_info else False,
+                        current_load=0.0
+                    )
+                    
+                    return llm_service_pb2.GetModelResponse(
+                        metadata=self._create_response_metadata(request_id, start_time),
+                        model=model,
+                        status=status
+                    )
+            
+            # Model not found
+            return llm_service_pb2.GetModelResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                error=common_pb2.ErrorDetail(
+                    code="NOT_FOUND",
+                    message=f"Model {request.model_id} not found"
+                )
+            )
+            
+        except Exception as e:
+            logger.error(f"GetModel failed: {e}")
+            return llm_service_pb2.GetModelResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                error=common_pb2.ErrorDetail(code="INTERNAL", message=str(e))
+            )
+    
+    async def ValidatePrompt(
+        self,
+        request: llm_service_pb2.ValidatePromptRequest,
+        context: grpc.aio.ServicerContext
+    ) -> llm_service_pb2.ValidatePromptResponse:
+        """Validate a prompt"""
+        start_time = time.time()
+        request_id = request.metadata.request_id or str(uuid.uuid4())
+        
+        try:
+            # Get model
+            model_id = request.model_id if request.HasField('model_id') else None
+            backend = await self.model_manager.get_model(model_id)
+            
+            if not backend:
+                return llm_service_pb2.ValidatePromptResponse(
+                    metadata=self._create_response_metadata(request_id, start_time),
+                    is_valid=False,
+                    error=common_pb2.ErrorDetail(
+                        code="NOT_FOUND",
+                        message=f"Model {model_id or 'default'} not available"
+                    )
+                )
+            
+            # Validate prompt
+            validation_result = await backend.validate_prompt(request.prompt)
+            
+            # Convert issues
+            issues = []
+            for issue in validation_result.get('issues', []):
+                issues.append(llm_service_pb2.ValidationIssue(
+                    type=issue['type'],
+                    severity=issue['severity'],
+                    message=issue['message']
+                ))
+            
+            response = llm_service_pb2.ValidatePromptResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                is_valid=validation_result['is_valid'],
+                issues=issues
+            )
+            
+            if request.count_tokens:
+                response.token_count = validation_result.get('token_count', 0)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"ValidatePrompt failed: {e}")
+            return llm_service_pb2.ValidatePromptResponse(
+                metadata=self._create_response_metadata(request_id, start_time),
+                is_valid=False,
+                error=common_pb2.ErrorDetail(code="INTERNAL", message=str(e))
+            )
+    
     # ===================== Helper Methods =====================
     
     def _build_prompt(
@@ -697,6 +955,49 @@ class LLMService(llm_service_pb2_grpc.LLMServiceServicer):
             is_final=True
         )
     
-    # ===================== Existing Methods (kept for compatibility) =====================
-    # [Keep all existing methods like Generate, StreamGenerate, etc.]
-    # ... (previous implementation remains the same)
+    # ===================== Base Helper Methods =====================
+    
+    def _trace_operation(self, operation: str, request_id: str, user_info: str = None):
+        """Create a traced operation context"""
+        if self.telemetry:
+            attributes = {
+                "request_id": request_id,
+                "operation": operation,
+                "service": self.service_name
+            }
+            if user_info:
+                attributes["user"] = user_info
+            return self.telemetry.trace_operation(operation, attributes)
+        else:
+            # Return a dummy context manager
+            @contextmanager
+            def dummy():
+                yield None
+            return dummy()
+    
+    async def _set_error(self, context: grpc.aio.ServicerContext, code: str, message: str):
+        """Set gRPC error status"""
+        if code == "INVALID_ARGUMENT":
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, message)
+        elif code == "NOT_FOUND":
+            await context.abort(grpc.StatusCode.NOT_FOUND, message)
+        elif code == "INTERNAL":
+            await context.abort(grpc.StatusCode.INTERNAL, message)
+        else:
+            await context.abort(grpc.StatusCode.UNKNOWN, message)
+    
+    def _create_response_metadata(self, request_id: str, start_time: float) -> common_pb2.ResponseMetadata:
+        """Create response metadata"""
+        metadata = common_pb2.ResponseMetadata(
+            request_id=request_id,
+            service_name=self.service_name,
+            service_version=self.service_version,
+            duration_ms=int((time.time() - start_time) * 1000)
+        )
+        
+        # Add timestamp
+        timestamp = timestamp_pb2.Timestamp()
+        timestamp.GetCurrentTime()
+        metadata.timestamp.CopyFrom(timestamp)
+        
+        return metadata

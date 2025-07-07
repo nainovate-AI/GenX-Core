@@ -3,7 +3,7 @@ Backend Factory for LLM Service
 Manages creation and selection of appropriate backends with device support
 """
 import logging
-from typing import Dict, Type, Optional, Any
+from typing import Dict, Type, Optional, Any, List
 from enum import Enum
 
 from genx_components.common.hardware_detector import HardwareDetector, BackendType
@@ -18,12 +18,12 @@ except ImportError:
     MLX_AVAILABLE = False
     logging.warning("MLX backend not available")
 
-# try:
-#     from ..backends.vllm_backend import VLLMBackend
-#     VLLM_AVAILABLE = True
-# except ImportError:
-#     VLLM_AVAILABLE = False
-#     logging.warning("vLLM backend not available")
+try:
+    from ..backends.vllm_backend import VLLMBackend
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+    logging.warning("vLLM backend not available")
 
 logger = logging.getLogger(__name__)
 

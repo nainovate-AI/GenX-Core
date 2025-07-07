@@ -19,10 +19,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Add project root to path
+# Add project root to path - this is the key fix
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '../../..'))
 sys.path.insert(0, project_root)
+
+# Also add the grpc directories to path for imports
+grpc_common = os.path.join(project_root, 'genx_components', 'common', 'grpc')
+grpc_services = os.path.join(project_root, 'genx_components', 'microservices', 'grpc')
+sys.path.insert(0, grpc_common)
+sys.path.insert(0, grpc_services)
 
 # Load .env file
 env_path = Path(current_dir) / '.env'
