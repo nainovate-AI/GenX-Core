@@ -25,6 +25,13 @@ except ImportError:
     VLLM_AVAILABLE = False
     logging.warning("vLLM backend not available")
 
+try:
+    from ..backends.tgi_backend import TGIBackend
+    TGI_AVAILABLE = True
+except ImportError:
+    TGI_AVAILABLE = False
+    logging.warning("TGI backend not available")
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,14 +50,17 @@ class BackendFactory:
     if VLLM_AVAILABLE:
         _backends[BackendType.VLLM.value] = VLLMBackend
     
+    if TGI_AVAILABLE:
+        _backends[BackendType.TGI.value] = TGIBackend
+    
     # Backend device compatibility
     _backend_device_support = {
         BackendType.TRANSFORMERS.value: ['cuda', 'cpu', 'mps', 'auto'],
         BackendType.MLX.value: ['mps', 'auto'],  # MLX only works on Apple Silicon
         BackendType.VLLM.value: ['cuda', 'auto'],  # vLLM only works on NVIDIA GPUs
+        BackendType.TGI.value: ['cuda', 'auto'], # TGI supports CUDA and auto
         # Future backends
         # BackendType.ONNX.value: ['cpu', 'cuda', 'auto'],
-        # BackendType.TGI.value: ['cuda', 'auto'],
     }
     
     @classmethod
@@ -206,6 +216,16 @@ class BackendFactory:
             if any(indicator in model_id.lower() for indicator in large_model_indicators):
                 logger.info(f"Auto-selected vLLM backend for large model on NVIDIA GPU")
                 return BackendType.VLLM.value
+            
+        # Check for NVIDIA GPU and TGI
+        # TGI is optimized for production serving of certain models    
+        if (hardware_info['hardware_type'].value == "nvidia_gpu" and
+            BackendType.TGI.value in cls._backends):  
+            # TGI is excellent for production serving
+            production_indicators = ["mistral", "llama", "falcon", "bloom", "codellama"]
+            if any(indicator in model_id.lower() for indicator in production_indicators):
+                logger.info(f"Auto-selected TGI backend for production serving on NVIDIA GPU")
+                return BackendType.TGI.value
         
         # Get recommended backends from hardware detector
         recommendations = hardware_info['recommended_backends']
@@ -264,6 +284,14 @@ class BackendFactory:
                 'available': False,
                 'supported_devices': ['cuda'],
                 'install_command': 'pip install vllm'
+            }
+        
+        if not TGI_AVAILABLE:
+            backends_info['tgi'] = {
+                'class': 'TGIBackend',
+                'available': False,
+                'supported_devices': ['cuda'],
+                'install_command': 'Docker required: docker pull ghcr.io/huggingface/text-generation-inference:latest'
             }
         
         return backends_info

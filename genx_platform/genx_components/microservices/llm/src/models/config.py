@@ -37,6 +37,14 @@ class LLMServiceConfig(BaseServiceConfig):
     max_batch_size: int = Field(32, env='MAX_BATCH_SIZE')
     max_concurrent_requests: int = Field(10, env='MAX_CONCURRENT_REQUESTS')
     request_timeout_seconds: int = Field(300, env='REQUEST_TIMEOUT_SECONDS')
+
+    # TGI (Text Generation Inference) specific settings
+    tgi_server_url: Optional[str] = Field(None, env='TGI_SERVER_URL')
+    tgi_external_server: bool = Field(True, env='TGI_EXTERNAL_SERVER')
+    tgi_quantize: Optional[str] = Field(None, env='TGI_QUANTIZE')  # bitsandbytes, gptq, awq
+    tgi_num_shard: int = Field(1, env='TGI_NUM_SHARD')
+    tgi_max_input_length: int = Field(4096, env='TGI_MAX_INPUT_LENGTH')
+    tgi_max_total_tokens: int = Field(8192, env='TGI_MAX_TOTAL_TOKENS')
     
     # Model-specific configs
     model_configs: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
