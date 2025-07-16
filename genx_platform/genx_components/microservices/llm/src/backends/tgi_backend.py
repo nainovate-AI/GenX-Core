@@ -1,8 +1,5 @@
-# genx_platform/genx_components/microservices/llm/src/backends/tgi_backend.py
 """
-TGI (Text Generation Inference) Backend
-High-performance inference server by Hugging Face
-Optimized for NVIDIA GPUs with continuous batching
+TGI (Text Generation Inference) Backend with Multi-Instance Support
 """
 import asyncio
 import logging
@@ -14,89 +11,58 @@ from dataclasses import dataclass
 import time
 
 from .base import LLMBackend, GenerationConfig, ModelInfo
+from .tgi_instance_manager import get_tgi_instance_manager, TGIInstance
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class TGIConfig:
-    """TGI server configuration"""
-    server_url: str = "http://localhost:8080"
-    timeout: int = 300
-    max_retries: int = 3
-    retry_delay: float = 1.0
-    health_check_interval: int = 30
-
-
 class TGIBackend(LLMBackend):
-    """TGI backend for high-performance inference"""
-    
-    # TGI-optimized models
-    TGI_RECOMMENDED_MODELS = [
-        "mistralai/Mistral-7B-Instruct-v0.2",
-        "meta-llama/Llama-2-7b-chat-hf",
-        "meta-llama/Llama-2-13b-chat-hf",
-        "meta-llama/Llama-2-70b-chat-hf",
-        "codellama/CodeLlama-7b-Instruct-hf",
-        "codellama/CodeLlama-13b-Instruct-hf",
-        "tiiuae/falcon-7b-instruct",
-        "tiiuae/falcon-40b-instruct",
-        "bigscience/bloom",
-        "google/flan-t5-xxl",
-        "EleutherAI/gpt-neox-20b",
-        "databricks/dolly-v2-12b",
-    ]
+    """TGI backend with support for multiple model instances"""
     
     def __init__(self, model_id: str, **kwargs):
         super().__init__(model_id, **kwargs)
-        self.config = TGIConfig(
-            server_url=kwargs.get('server_url', os.environ.get('TGI_SERVER_URL', 'http://localhost:8080')),
-            timeout=kwargs.get('timeout', 300),
-            max_retries=kwargs.get('max_retries', 3),
-            retry_delay=kwargs.get('retry_delay', 1.0)
-        )
+        self.instance_manager = get_tgi_instance_manager()
+        self.instance: Optional[TGIInstance] = None
         self.session: Optional[aiohttp.ClientSession] = None
         self._server_info: Optional[Dict[str, Any]] = None
-        self.is_external_server = kwargs.get('external_server', True)
-        self.container_name = kwargs.get('container_name', f'tgi-{model_id.replace("/", "-")}')
-        self.docker_image = kwargs.get('docker_image', 'ghcr.io/huggingface/text-generation-inference:latest')
-        self.sharded = kwargs.get('sharded', False)
-        self.quantize = kwargs.get('quantize', None)  # bitsandbytes, gptq, awq
+        
+        # Configuration from kwargs
+        self.quantize = kwargs.get('quantize', None)
         self.num_shard = kwargs.get('num_shard', 1)
-        self.max_input_length = kwargs.get('max_input_length', 4096)
-        self.max_total_tokens = kwargs.get('max_total_tokens', 8192)
-        self.max_batch_prefill_tokens = kwargs.get('max_batch_prefill_tokens', 4096)
+        self.max_input_length = kwargs.get('max_input_length', 2048)
+        self.max_total_tokens = kwargs.get('max_total_tokens', 4096)
+        self.gpu_memory_fraction = kwargs.get('gpu_memory_fraction', 0.9)
         
     async def initialize(self) -> bool:
-        """Initialize the TGI backend"""
+        """Initialize the TGI backend by getting or creating an instance"""
         try:
             logger.info(f"Initializing TGI backend for {self.model_id}")
             
-            # Create HTTP session
-            timeout = aiohttp.ClientTimeout(total=self.config.timeout)
+            # Get or create TGI instance for this model
+            self.instance = await self.instance_manager.get_or_create_instance(
+                model_id=self.model_id,
+                quantize=self.quantize,
+                max_input_length=self.max_input_length,
+                max_total_tokens=self.max_total_tokens,
+                gpu_memory_fraction=self.gpu_memory_fraction,
+                num_shard=self.num_shard
+            )
+            
+            # Create HTTP session for this instance
+            timeout = aiohttp.ClientTimeout(total=300)
             self.session = aiohttp.ClientSession(timeout=timeout)
-            
-            # Check if we need to start TGI server
-            if not self.is_external_server:
-                logger.info("Starting TGI server in Docker container")
-                await self._start_tgi_server()
-            else:
-                logger.info("Using external TGI server at " + self.config.server_url)
-            
-            # Wait for server to be ready
-            if not await self._wait_for_server():
-                logger.error("TGI server failed to start or is not accessible")
-                return False
             
             # Get server info
             self._server_info = await self._get_server_info()
             
-            # Validate model matches
-            if self._server_info and self._server_info.get('model_id') != self.model_id:
-                logger.warning(
-                    f"Server is running model {self._server_info.get('model_id')}, "
-                    f"but requested {self.model_id}"
-                )
+            # Verify the correct model is loaded
+            if self._server_info:
+                loaded_model = self._server_info.get('model_id', '')
+                if loaded_model != self.model_id:
+                    logger.warning(
+                        f"Model mismatch: requested {self.model_id}, "
+                        f"but server has {loaded_model}"
+                    )
             
             # Set model info
             self.model_info = ModelInfo(
@@ -114,7 +80,10 @@ class TGIBackend(LLMBackend):
             )
             
             self._is_initialized = True
-            logger.info(f"Successfully initialized TGI backend for {self.model_id}")
+            logger.info(
+                f"Successfully initialized TGI backend for {self.model_id} "
+                f"on port {self.instance.port}"
+            )
             return True
             
         except Exception as e:
@@ -123,73 +92,13 @@ class TGIBackend(LLMBackend):
                 await self.session.close()
             return False
     
-    async def _start_tgi_server(self):
-        """Start TGI server using Docker"""
-        try:
-            print("Starting TGI server...")
-            import subprocess
-            
-            # Check if container already exists
-            check_cmd = f"docker ps -a -q -f name={self.container_name}"
-            result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-            
-            if result.stdout.strip():
-                # Container exists, remove it
-                logger.info(f"Removing existing container {self.container_name}")
-                subprocess.run(f"docker rm -f {self.container_name}", shell=True)
-            
-            # Build docker command
-            docker_cmd = [
-                "docker", "run", "-d",
-                "--name", self.container_name,
-                "--gpus", "all",
-                "-p", f"{self.config.server_url.split(':')[-1]}:80",
-                "-v", f"{os.path.expanduser('~/.cache/huggingface')}:/data",
-                "--shm-size", "1g",
-                self.docker_image,
-                "--model-id", self.model_id,
-                "--max-input-length", str(self.max_input_length),
-                "--max-total-tokens", str(self.max_total_tokens),
-                "--max-batch-prefill-tokens", str(self.max_batch_prefill_tokens)
-            ]
-            
-            # Add optional parameters
-            if self.quantize:
-                docker_cmd.extend(["--quantize", self.quantize])
-            
-            if self.sharded or self.num_shard > 1:
-                docker_cmd.extend(["--num-shard", str(self.num_shard)])
-            
-            logger.info(f"Starting TGI server with command: {' '.join(docker_cmd)}")
-            subprocess.run(docker_cmd, check=True)
-            
-            logger.info(f"TGI server container {self.container_name} started")
-            
-        except Exception as e:
-            logger.error(f"Failed to start TGI server: {e}")
-            raise
-    
-    async def _wait_for_server(self, max_wait: int = 120) -> bool:
-        """Wait for TGI server to be ready"""
-        start_time = time.time()
-        
-        while time.time() - start_time < max_wait:
-            try:
-                async with self.session.get(f"{self.config.server_url}/health") as response:
-                    if response.status == 200:
-                        logger.info("TGI server is ready")
-                        return True
-            except:
-                pass
-            
-            await asyncio.sleep(2)
-        
-        return False
-    
     async def _get_server_info(self) -> Optional[Dict[str, Any]]:
         """Get TGI server information"""
+        if not self.instance:
+            return None
+            
         try:
-            async with self.session.get(f"{self.config.server_url}/info") as response:
+            async with self.session.get(f"{self.instance.server_url}/info") as response:
                 if response.status == 200:
                     return await response.json()
         except Exception as e:
@@ -198,11 +107,10 @@ class TGIBackend(LLMBackend):
     
     def _estimate_gpu_memory(self) -> float:
         """Estimate GPU memory requirements based on model"""
-        # Rough estimates based on model size
         model_lower = self.model_id.lower()
         
         if "70b" in model_lower:
-            return 140.0  # 2x A100 80GB
+            return 140.0
         elif "40b" in model_lower:
             return 80.0
         elif "30b" in model_lower:
@@ -216,7 +124,7 @@ class TGIBackend(LLMBackend):
         elif "3b" in model_lower:
             return 6.0
         else:
-            return 16.0  # Default
+            return 8.0  # Default for smaller models
     
     async def generate(
         self,
@@ -226,6 +134,14 @@ class TGIBackend(LLMBackend):
         messages: Optional[List[Dict[str, str]]] = None
     ) -> Dict[str, Any]:
         """Generate text using TGI server"""
+        if not self.instance or not self.session:
+            raise RuntimeError("TGI backend not initialized")
+        
+        # Create a new session for each request if none exists
+        if not self.session or self.session.closed:
+            timeout = aiohttp.ClientTimeout(total=300)
+            self.session = aiohttp.ClientSession(timeout=timeout)
+            
         try:
             # Prepare input
             input_text = self._prepare_input(prompt, system_prompt, messages)
@@ -245,55 +161,40 @@ class TGIBackend(LLMBackend):
                 }
             }
             
-            # Add stop sequences if provided
             if config.stop_sequences:
                 payload["parameters"]["stop"] = config.stop_sequences
             
-            # Add seed if provided
             if config.seed is not None:
                 payload["parameters"]["seed"] = config.seed
             
-            # Make request with retries
-            for attempt in range(self.config.max_retries):
-                try:
-                    async with self.session.post(
-                        f"{self.config.server_url}/generate",
-                        json=payload
-                    ) as response:
-                        if response.status == 200:
-                            result = await response.json()
-                            
-                            # Extract generated text and details
-                            generated_text = result.get("generated_text", "")
-                            details = result.get("details", {})
-                            
-                            # Calculate token usage
-                            prompt_tokens = len(details.get("prefill", []))
-                            completion_tokens = len(details.get("tokens", []))
-                            
-                            return {
-                                "text": generated_text,
-                                "tokens_used": {
-                                    "prompt_tokens": prompt_tokens,
-                                    "completion_tokens": completion_tokens,
-                                    "total_tokens": prompt_tokens + completion_tokens
-                                },
-                                "finish_reason": details.get("finish_reason", "stop"),
-                                "model_id": self.model_id
-                            }
-                        else:
-                            error_text = await response.text()
-                            logger.error(f"TGI generation failed: {response.status} - {error_text}")
-                            
-                except aiohttp.ClientError as e:
-                    logger.warning(f"Request attempt {attempt + 1} failed: {e}")
-                    if attempt < self.config.max_retries - 1:
-                        await asyncio.sleep(self.config.retry_delay * (attempt + 1))
-                    else:
-                        raise
-            
-            raise Exception("Failed to generate after all retries")
-            
+            # Make request
+            async with self.session.post(
+                f"{self.instance.server_url}/generate",
+                json=payload
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    
+                    generated_text = result.get("generated_text", "")
+                    details = result.get("details", {})
+                    
+                    prompt_tokens = len(details.get("prefill", []))
+                    completion_tokens = len(details.get("tokens", []))
+                    
+                    return {
+                        "text": generated_text,
+                        "tokens_used": {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens
+                        },
+                        "finish_reason": details.get("finish_reason", "stop"),
+                        "model_id": self.model_id
+                    }
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"TGI generation failed: {response.status} - {error_text}")
+                    
         except Exception as e:
             logger.error(f"TGI generation failed: {e}")
             raise
@@ -306,11 +207,17 @@ class TGIBackend(LLMBackend):
         messages: Optional[List[Dict[str, str]]] = None
     ) -> AsyncGenerator[str, None]:
         """Stream text generation using TGI server"""
+        if not self.instance or not self.session:
+            raise RuntimeError("TGI backend not initialized")
+        
+        # Create a new session for each request if none exists
+        if not self.session or self.session.closed:
+            timeout = aiohttp.ClientTimeout(total=300)
+            self.session = aiohttp.ClientSession(timeout=timeout)
+            
         try:
-            # Prepare input
             input_text = self._prepare_input(prompt, system_prompt, messages)
             
-            # Build request payload
             payload = {
                 "inputs": input_text,
                 "parameters": {
@@ -325,21 +232,18 @@ class TGIBackend(LLMBackend):
                 "stream": True
             }
             
-            # Add stop sequences if provided
             if config.stop_sequences:
                 payload["parameters"]["stop"] = config.stop_sequences
             
-            # Make streaming request
             async with self.session.post(
-                f"{self.config.server_url}/generate_stream",
+                f"{self.instance.server_url}/generate_stream",
                 json=payload
             ) as response:
                 if response.status == 200:
-                    # Read server-sent events
                     async for line in response.content:
                         line = line.decode('utf-8').strip()
                         if line.startswith("data: "):
-                            data = line[6:]  # Remove "data: " prefix
+                            data = line[6:]
                             if data == "[DONE]":
                                 break
                             try:
@@ -363,9 +267,7 @@ class TGIBackend(LLMBackend):
         messages: Optional[List[Dict[str, str]]] = None
     ) -> str:
         """Prepare input text from prompt and messages"""
-        # TGI supports various chat templates, let's use a simple format
         if messages:
-            # Format as conversation
             formatted_parts = []
             
             if system_prompt:
@@ -391,15 +293,9 @@ class TGIBackend(LLMBackend):
             return prompt
     
     async def count_tokens(self, text: str) -> int:
-        """Count tokens using TGI tokenizer endpoint"""
-        try:
-            # TGI doesn't have a direct token counting endpoint
-            # We'll estimate based on the model
-            # For now, use a rough estimate
-            return len(text.split()) * 1.3  # Rough approximation
-        except Exception as e:
-            logger.error(f"Token counting failed: {e}")
-            return len(text.split())
+        """Count tokens using estimation"""
+        # TGI doesn't expose tokenization endpoint, use estimation
+        return int(len(text.split()) * 1.3)
     
     async def validate_prompt(self, prompt: str) -> Dict[str, Any]:
         """Validate prompt for token limits"""
@@ -421,35 +317,36 @@ class TGIBackend(LLMBackend):
         }
     
     async def health_check(self) -> Dict[str, Any]:
-        """Check TGI server health"""
+        """Check TGI backend health"""
         try:
             health_info = {
                 "status": "unhealthy",
                 "backend": "tgi",
                 "model_loaded": False,
-                "server_url": self.config.server_url,
-                "device": "cuda"  # TGI primarily supports NVIDIA GPUs
+                "device": "cuda"
             }
             
-            if self.session:
-                # Check health endpoint
-                try:
-                    async with self.session.get(f"{self.config.server_url}/health") as response:
-                        if response.status == 200:
-                            health_info["status"] = "healthy"
-                            health_info["model_loaded"] = True
-                            
-                            # Get additional info if available
-                            if self._server_info:
-                                health_info["model_info"] = {
-                                    "model_id": self._server_info.get("model_id"),
-                                    "model_type": self._server_info.get("model_type"),
-                                    "max_concurrent_requests": self._server_info.get("max_concurrent_requests"),
-                                    "max_input_length": self._server_info.get("max_input_length"),
-                                    "max_total_tokens": self._server_info.get("max_total_tokens")
-                                }
-                except Exception as e:
-                    health_info["error"] = str(e)
+            if self.instance:
+                health_info["server_url"] = self.instance.server_url
+                health_info["port"] = self.instance.port
+                health_info["container_name"] = self.instance.container_name
+                
+                if self.session:
+                    try:
+                        async with self.session.get(f"{self.instance.server_url}/health") as response:
+                            if response.status == 200:
+                                health_info["status"] = "healthy"
+                                health_info["model_loaded"] = True
+                                
+                                if self._server_info:
+                                    health_info["model_info"] = {
+                                        "model_id": self._server_info.get("model_id"),
+                                        "max_concurrent_requests": self._server_info.get("max_concurrent_requests"),
+                                        "max_input_length": self._server_info.get("max_input_length"),
+                                        "max_total_tokens": self._server_info.get("max_total_tokens")
+                                    }
+                    except Exception as e:
+                        health_info["error"] = str(e)
             
             return health_info
             
@@ -460,23 +357,22 @@ class TGIBackend(LLMBackend):
                 "error": str(e)
             }
     
+    # Update the cleanup method to properly close sessions
     async def cleanup(self):
-        """Clean up resources"""
-        logger.info("Cleaning up TGI backend")
+        """Clean up resources (but keep TGI instance running for reuse)"""
+        logger.info(f"Cleaning up TGI backend for {self.model_id}")
         
         # Close HTTP session
-        if self.session:
+        if self.session and not self.session.closed:
             await self.session.close()
-            self.session = None
-        
-        # Stop TGI server if we started it
-        if not self.is_external_server:
-            try:
-                import subprocess
-                logger.info(f"Stopping TGI container {self.container_name}")
-                subprocess.run(f"docker stop {self.container_name}", shell=True)
-                subprocess.run(f"docker rm {self.container_name}", shell=True)
-            except Exception as e:
-                logger.error(f"Failed to stop TGI container: {e}")
+            # Wait a bit for proper cleanup
+            await asyncio.sleep(0.1)
+        self.session = None
         
         self._is_initialized = False
+    
+    @staticmethod
+    async def get_all_instances_info() -> Dict[str, Dict]:
+        """Get information about all running TGI instances"""
+        manager = get_tgi_instance_manager()
+        return manager.get_instance_info()

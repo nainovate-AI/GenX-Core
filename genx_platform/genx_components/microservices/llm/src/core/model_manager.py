@@ -203,7 +203,7 @@ class ModelManager:
         device_filter: Optional[str] = None,
         include_stats: bool = True
     ) -> Dict[str, Any]:
-        """Get information about loaded models"""
+        """Get information about loaded models including TGI instances"""
         models_info = []
         
         for model_id, loaded_model in self.models.items():
@@ -259,6 +259,36 @@ class ModelManager:
                 pass
             
             models_info.append(info)
+
+        # Add TGI instances info if TGI backend is being used
+        if backend_filter is None or backend_filter == 'tgi':
+            try:
+                from ..backends.tgi_backend import TGIBackend
+                tgi_instances = await TGIBackend.get_all_instances_info()
+                
+                for model_name, instance_info in tgi_instances.items():
+                    info = {
+                        'model_id': f"tgi-{model_name}-{instance_info['port']}",
+                        'model_name': model_name,
+                        'backend': 'tgi',
+                        'device': 'cuda',  # TGI typically uses GPU
+                        'loaded_at': datetime.now().isoformat(),
+                        'status': {
+                            'is_loaded': instance_info['is_ready'],
+                            'is_available': instance_info['is_ready'],
+                            'current_load': 0.0
+                        },
+                        'tgi_specific': {
+                            'port': instance_info['port'],
+                            'server_url': instance_info['server_url'],
+                            'container_name': instance_info['container_name'],
+                            'uptime': instance_info['uptime']
+                        }
+                    }
+                    models_info.append(info)
+                    
+            except Exception as e:
+                logger.debug(f"Could not get TGI instances info: {e}")
         
         # Get system info
         system_info = self._get_system_info()
