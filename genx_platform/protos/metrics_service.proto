@@ -1,0 +1,334 @@
+// protos/metrics_service.proto
+syntax = "proto3";
+
+package genx.metrics.v1;
+
+option go_package = "github.com/genx/platform/api/metrics/v1;metricsv1";
+option java_multiple_files = true;
+option java_package = "com.genx.platform.api.metrics.v1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// Metrics service for system resource monitoring
+service MetricsService {
+  // Get current system metrics
+  rpc GetSystemMetrics(GetSystemMetricsRequest) returns (GetSystemMetricsResponse);
+  
+  // Stream real-time metrics updates
+  rpc StreamSystemMetrics(StreamSystemMetricsRequest) returns (stream SystemMetricsUpdate);
+  
+  // Get historical metrics
+  rpc GetMetricsHistory(GetMetricsHistoryRequest) returns (GetMetricsHistoryResponse);
+  
+  // Force refresh metrics collection
+  rpc RefreshMetrics(RefreshMetricsRequest) returns (RefreshMetricsResponse);
+}
+
+// Request for getting system metrics
+message GetSystemMetricsRequest {
+  // Which metrics to include
+  repeated MetricType metric_types = 1;
+  
+  // Force fresh collection instead of cached
+  bool force_refresh = 2;
+  
+  // Request ID for tracing
+  string request_id = 3;
+}
+
+// Response with system metrics
+message GetSystemMetricsResponse {
+  // Collected metrics
+  SystemMetrics metrics = 1;
+  
+  // Whether data is from cache or fresh
+  string source = 2; // "cache" or "fresh"
+  
+  // Collection timestamp
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// Request for streaming metrics
+message StreamSystemMetricsRequest {
+  // Update interval in seconds
+  int32 interval_seconds = 1;
+  
+  // Which metrics to include
+  repeated MetricType metric_types = 2;
+  
+  // Request ID for tracing
+  string request_id = 3;
+}
+
+// Streamed metrics update
+message SystemMetricsUpdate {
+  // Update type
+  UpdateType type = 1;
+  
+  // Metrics data
+  SystemMetrics metrics = 2;
+  
+  // Update timestamp
+  google.protobuf.Timestamp timestamp = 3;
+  
+  enum UpdateType {
+    INITIAL = 0;
+    PERIODIC = 1;
+    REFRESH = 2;
+  }
+}
+
+// Request for historical metrics
+message GetMetricsHistoryRequest {
+  // Start time
+  google.protobuf.Timestamp start_time = 1;
+  
+  // End time
+  google.protobuf.Timestamp end_time = 2;
+  
+  // Metric types to retrieve
+  repeated MetricType metric_types = 3;
+  
+  // Resolution in seconds
+  int32 resolution_seconds = 4;
+  
+  // Request ID for tracing
+  string request_id = 5;
+}
+
+// Response with historical metrics
+message GetMetricsHistoryResponse {
+  // Historical data points
+  repeated MetricsDataPoint data_points = 1;
+  
+  // Query metadata
+  MetricsHistoryMetadata metadata = 2;
+}
+
+// Request to refresh metrics
+message RefreshMetricsRequest {
+  // Request ID for tracing
+  string request_id = 1;
+}
+
+// Response for refresh request
+message RefreshMetricsResponse {
+  // Success status
+  bool success = 1;
+  
+  // Refreshed metrics
+  SystemMetrics metrics = 2;
+}
+
+// Types of metrics available
+enum MetricType {
+  METRIC_TYPE_UNSPECIFIED = 0;
+  METRIC_TYPE_CPU = 1;
+  METRIC_TYPE_MEMORY = 2;
+  METRIC_TYPE_GPU = 3;
+  METRIC_TYPE_DISK = 4;
+  METRIC_TYPE_NETWORK = 5;
+  METRIC_TYPE_ALL = 6;
+}
+
+// Complete system metrics
+message SystemMetrics {
+  // CPU metrics
+  CpuMetrics cpu = 1;
+  
+  // Memory metrics
+  MemoryMetrics memory = 2;
+  
+  // GPU metrics (can be multiple GPUs)
+  repeated GpuMetrics gpu = 3;
+  
+  // Disk metrics
+  DiskMetrics disk = 4;
+  
+  // Network metrics
+  NetworkMetrics network = 5;
+}
+
+// CPU metrics
+message CpuMetrics {
+  // Overall CPU usage percentage
+  double usage_percent = 1;
+  
+  // Per-core usage percentages
+  repeated double per_core_percent = 2;
+  
+  // CPU frequency info
+  CpuFrequency frequency = 3;
+  
+  // Load averages
+  LoadAverage load_average = 4;
+  
+  // CPU count
+  int32 count = 5;
+  
+  // Logical CPU count
+  int32 count_logical = 6;
+  
+  message CpuFrequency {
+    double current_mhz = 1;
+    double min_mhz = 2;
+    double max_mhz = 3;
+  }
+  
+  message LoadAverage {
+    double one_minute = 1;
+    double five_minutes = 2;
+    double fifteen_minutes = 3;
+  }
+}
+
+// Memory metrics
+message MemoryMetrics {
+  // Total memory in bytes
+  int64 total_bytes = 1;
+  
+  // Available memory in bytes
+  int64 available_bytes = 2;
+  
+  // Used memory in bytes
+  int64 used_bytes = 3;
+  
+  // Free memory in bytes
+  int64 free_bytes = 4;
+  
+  // Memory usage percentage
+  double percent = 5;
+  
+  // Swap memory info
+  SwapMemory swap = 6;
+  
+  message SwapMemory {
+    int64 total_bytes = 1;
+    int64 used_bytes = 2;
+    int64 free_bytes = 3;
+    double percent = 4;
+  }
+}
+
+// GPU metrics
+message GpuMetrics {
+  // GPU ID
+  int32 id = 1;
+  
+  // GPU name
+  string name = 2;
+  
+  // GPU load percentage
+  double load_percent = 3;
+  
+  // GPU memory info
+  GpuMemory memory = 4;
+  
+  // GPU temperature in Celsius
+  double temperature_celsius = 5;
+  
+  // GPU UUID
+  string uuid = 6;
+  
+  // Driver version
+  string driver_version = 7;
+  
+  message GpuMemory {
+    int64 total_bytes = 1;
+    int64 used_bytes = 2;
+    int64 free_bytes = 3;
+    double percent = 4;
+  }
+}
+
+// Disk metrics
+message DiskMetrics {
+  // Overall disk usage
+  DiskUsage usage = 1;
+  
+  // Disk I/O statistics
+  DiskIo io = 2;
+  
+  // Per-partition information
+  repeated DiskPartition partitions = 3;
+  
+  // Model storage specific metrics
+  ModelStorage model_storage = 4;
+  
+  message DiskUsage {
+    int64 total_bytes = 1;
+    int64 used_bytes = 2;
+    int64 free_bytes = 3;
+    double percent = 4;
+  }
+  
+  message DiskIo {
+    int64 read_count = 1;
+    int64 write_count = 2;
+    int64 read_bytes = 3;
+    int64 write_bytes = 4;
+  }
+  
+  message DiskPartition {
+    string device = 1;
+    string mount_point = 2;
+    string filesystem_type = 3;
+    int64 total_bytes = 4;
+    int64 used_bytes = 5;
+    int64 free_bytes = 6;
+    double percent = 7;
+  }
+  
+  message ModelStorage {
+    string path = 1;
+    int64 total_bytes = 2;
+    int64 used_bytes = 3;
+    int64 free_bytes = 4;
+    double percent = 5;
+  }
+}
+
+// Network metrics
+message NetworkMetrics {
+  // Network I/O statistics
+  NetworkIo io = 1;
+  
+  // Connection counts by state
+  map<string, int32> connection_states = 2;
+  
+  message NetworkIo {
+    int64 bytes_sent = 1;
+    int64 bytes_received = 2;
+    int64 packets_sent = 3;
+    int64 packets_received = 4;
+    int64 errors_in = 5;
+    int64 errors_out = 6;
+    int64 dropped_in = 7;
+    int64 dropped_out = 8;
+  }
+}
+
+// Historical data point
+message MetricsDataPoint {
+  // Timestamp of the data point
+  google.protobuf.Timestamp timestamp = 1;
+  
+  // Metrics at this point in time
+  SystemMetrics metrics = 2;
+}
+
+// Metadata for historical query
+message MetricsHistoryMetadata {
+  // Actual start time of data
+  google.protobuf.Timestamp start_time = 1;
+  
+  // Actual end time of data
+  google.protobuf.Timestamp end_time = 2;
+  
+  // Number of data points
+  int32 count = 3;
+  
+  // Resolution in seconds
+  int32 resolution_seconds = 4;
+}
