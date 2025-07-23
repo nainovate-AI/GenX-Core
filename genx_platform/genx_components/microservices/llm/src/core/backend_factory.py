@@ -85,6 +85,14 @@ class BackendFactory:
         Returns:
             LLMBackend instance
         """
+
+        logger.info(f"BackendFactory.create_backend called")
+        logger.info(f"  backend_type: {backend_type}")
+        logger.info(f"  model_id: {model_id}")
+        logger.info(f"  device: {device}")
+        logger.info(f"  auto_select: {auto_select}")
+        logger.info(f"  kwargs: {kwargs}")
+        
         # Add device to kwargs
         kwargs['device'] = device
         

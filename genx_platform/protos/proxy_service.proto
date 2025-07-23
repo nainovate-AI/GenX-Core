@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package genx.proxy.v1;
+
+option go_package = "github.com/genx/platform/api/proxy/v1;proxyv1";
+option java_multiple_files = true;
+option java_package = "com.genx.platform.api.proxy.v1";
+
+import "common.proto";
+
+// Proxy Service - Main entry point for all operations
+service ProxyService {
+    // Simple text generation - hides backend complexity
+    rpc GenerateText(GenerateTextRequest) returns (GenerateTextResponse);
+    
+    // List available models
+    rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Simple generate request - user friendly
+message GenerateTextRequest {
+    genx.common.v1.RequestMetadata metadata = 1;
+    
+    string model_name = 2;
+    string prompt = 3;
+    
+    // Optional parameters with defaults
+    int32 max_tokens = 4;
+    float temperature = 5;
+}
+
+message GenerateTextResponse {
+    genx.common.v1.ResponseMetadata metadata = 1;
+    
+    string generated_text = 2;
+    genx.common.v1.TokenUsage token_usage = 3;
+    string model_used = 4;
+}
+
+message ListModelsRequest {
+    genx.common.v1.RequestMetadata metadata = 1;
+    
+    // Optional filters
+    bool only_loaded = 2;
+}
+
+message ListModelsResponse {
+    genx.common.v1.ResponseMetadata metadata = 1;
+    
+    repeated ModelInfo models = 2;
+}
+
+message ModelInfo {
+    string name = 1;
+    string status = 2;
+    string backend = 3;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    string status = 1;
+    map<string, string> services = 2;
+}

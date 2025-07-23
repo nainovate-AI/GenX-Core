@@ -522,13 +522,23 @@ class LLMService(llm_service_pb2_grpc.LLMServiceServicer):
             backend = await self.model_manager.get_model(model_id)
             
             if not backend:
-                return llm_service_pb2.GenerateResponse(
-                    metadata=self._create_response_metadata(request_id, start_time),
-                    error=common_pb2.ErrorDetail(
-                        code="NOT_FOUND",
-                        message=f"Model {model_id or 'default'} not available"
-                    )
+                # If not found by ID, try loading it
+                logger.info(f"Model {request.model_id} not found, attempting to load...")
+                model_id, loaded = await self.model_manager.load_model(
+                    model_name=request.model_id,
+                    backend=self.model_manager.config.get('backend_type', 'transformers'),
+                    device='auto'
                 )
+                if loaded:
+                    backend = loaded.backend
+                else:
+                    return llm_service_pb2.GenerateResponse(
+                        metadata=self._create_response_metadata(request_id, start_time),
+                        error=common_pb2.ErrorDetail(
+                            code="NOT_FOUND",
+                            message=f"Model {request.model_id} not available"
+                        )
+                    )
             
             # Convert config
             config = GenerationConfig.from_proto(request.config) if request.HasField('config') else GenerationConfig()

@@ -16,8 +16,9 @@ class LLMServiceConfig(BaseServiceConfig):
     # Add this to fix the Pydantic warnings
     model_config = {'protected_namespaces': ()}
     
-    # Service name override
+    # Service name and port override
     service_name: str = Field("llm-service", env='SERVICE_NAME')
+    service_port: int = Field(50053, env='SERVICE_PORT')
     
     # Model configuration
     default_model_id: str = Field("gpt2", env='DEFAULT_MODEL_ID')
@@ -32,6 +33,9 @@ class LLMServiceConfig(BaseServiceConfig):
     load_in_8bit: bool = Field(False, env='LOAD_IN_8BIT')
     load_in_4bit: bool = Field(False, env='LOAD_IN_4BIT')
     device_map: str = Field("auto", env='DEVICE_MAP')
+
+    preload_models: bool = Field(False, env='PRELOAD_MODELS')
+    models_to_preload: List[str] = Field(default_factory=list, env='MODELS_TO_PRELOAD')
     
     # Request limits
     max_batch_size: int = Field(32, env='MAX_BATCH_SIZE')

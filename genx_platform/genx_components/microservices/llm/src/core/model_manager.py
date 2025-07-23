@@ -58,7 +58,12 @@ class ModelManager:
         Returns:
             Tuple of (model_id, LoadedModel) if successful, (None, None) if failed
         """
+        logger.info(f"=== Starting load_model ===")
+        logger.info(f"Model: {model_name}, Backend: {backend}, Device: {device}")
+
         async with self._lock:
+            logger.info("Acquired lock")
+
             # Check if model already loaded with same config
             for mid, loaded in self.models.items():
                 if (loaded.model_name == model_name and 
@@ -69,10 +74,12 @@ class ModelManager:
             
             # Check capacity
             if len(self.models) >= self.max_loaded_models:
+                logger.info("At max capacity, unloading LRU model")
                 await self._unload_least_recently_used()
             
             # Generate unique model ID
             model_id = f"{model_name}_{backend}_{device}_{uuid.uuid4().hex[:8]}"
+            logger.info(f"Generated model ID: {model_id}")
             
             try:
                 # Prepare backend configuration
@@ -88,6 +95,10 @@ class ModelManager:
                     full_config.update(backend_config)
                 
                 # Create backend
+                # Create backend
+                logger.info(f"Creating backend with BackendFactory...")
+                logger.info(f"Full config: {full_config}")
+
                 logger.info(f"Loading model {model_name} with {backend} backend on {device}")
                 backend_instance = BackendFactory.create_backend(
                     backend_type=backend,
@@ -95,6 +106,8 @@ class ModelManager:
                     auto_select=False,  # Use specified backend
                     **full_config
                 )
+
+                logger.info(f"Backend instance created: {type(backend_instance)}")
                 
                 # Initialize backend
                 success = await backend_instance.initialize()
@@ -138,10 +151,37 @@ class ModelManager:
                 logger.error(f"Error unloading model {model_id}: {e}")
                 return False
     
+    async def get_model_by_name(self, model_name: str) -> Optional[LLMBackend]:
+        """Get a model by name (not ID)"""
+        async with self._lock:
+            # First try exact ID match
+            if model_name in self.models:
+                loaded_model = self.models[model_name]
+                loaded_model.last_used = time.time()
+                loaded_model.request_count += 1
+                return loaded_model.backend
+            
+            # Then try to find by model name
+            for model_id, loaded in self.models.items():
+                if loaded.model_name == model_name:
+                    loaded.last_used = time.time()
+                    loaded.request_count += 1
+                    return loaded.backend
+            
+            logger.warning(f"Model {model_name} not found")
+            return None
+    
     async def get_model(self, model_id: Optional[str] = None) -> Optional[LLMBackend]:
         """
         Get a model backend by ID or return default
         """
+        if model_id:
+            # Try to get by name first
+            backend = await self.get_model_by_name(model_id)
+            if backend:
+                return backend
+        
+        # First check with lock
         async with self._lock:
             if model_id:
                 if model_id in self.models:
@@ -167,15 +207,29 @@ class ModelManager:
                 first_model.last_used = time.time()
                 first_model.request_count += 1
                 return first_model.backend
-            
-            # No models loaded, try to load default
-            logger.info("No models loaded, attempting to load default model")
+        
+        # No models loaded - release lock before loading
+        logger.info("No models loaded, attempting to load default model")
+        
+        # Load model without holding the lock
+        backend_type = self.config.get('backend_type', 'transformers')
+        
+        try:
             model_id, loaded = await self.load_model(
-                self.default_model_id,
-                self.config.get('backend_type', 'transformers'),
-                'auto'
+                model_name=self.default_model_id,
+                backend=backend_type,
+                device='auto'
             )
-            return loaded.backend if loaded else None
+            
+            if loaded:
+                return loaded.backend
+            else:
+                logger.error("Failed to load default model")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error loading default model: {e}")
+            return None
     
     def _get_actual_device(self, backend: LLMBackend) -> str:
         """Get the actual device the model is loaded on"""

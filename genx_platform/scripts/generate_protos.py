@@ -13,10 +13,11 @@ def generate_protos():
     project_root = Path(__file__).parent.parent
     proto_dir = project_root / "protos"
     
-    # Output directories
+    # Output directories - Updated to include proxy service
     output_dirs = {
         "common": project_root / "genx_components" / "common" / "grpc",
-        "services": project_root / "genx_components" / "microservices" / "grpc"
+        "services": project_root / "genx_components" / "microservices" / "grpc",
+        "proxy": project_root / "services" / "proxy_service" / "src" / "grpc"  # New
     }
     
     # Create output directories and __init__.py files
@@ -43,6 +44,8 @@ def generate_protos():
         # Determine output directory
         if "common" in proto_file.name:
             output_dir = output_dirs["common"]
+        elif "proxy_service" in proto_file.name:
+            output_dir = output_dirs["proxy"]  # New proxy service
         else:
             output_dir = output_dirs["services"]
         
@@ -87,55 +90,55 @@ def fix_imports_comprehensive(output_dirs):
             common_grpc.write_text(content)
             print(f"  ✓ Fixed imports in common_pb2_grpc.py")
     
-    # Fix service files
+    # Fix service files in microservices
     services_dir = output_dirs["services"]
     if services_dir.exists():
-        # Process all _pb2.py files
-        for pb2_file in services_dir.glob("*_pb2.py"):
-            content = pb2_file.read_text()
-            original_content = content
-            
-            # Fix common imports (both styles)
-            content = content.replace(
-                "import common_pb2 as common__pb2",
-                "from genx_components.common.grpc import common_pb2 as common__pb2"
-            )
-            content = content.replace(
-                "from . import common_pb2 as common__pb2",
-                "from genx_components.common.grpc import common_pb2 as common__pb2"
-            )
-            
-            if content != original_content:
-                pb2_file.write_text(content)
-                print(f"  ✓ Fixed imports in {pb2_file.name}")
+        fix_service_imports(services_dir, "genx_components.microservices.grpc")
+    
+    # Fix proxy service files
+    proxy_dir = output_dirs["proxy"]
+    if proxy_dir.exists():
+        fix_service_imports(proxy_dir, "services.proxy_service.src.grpc")
+
+def fix_service_imports(service_dir, base_import_path):
+    """Fix imports for a specific service directory"""
+    # Process all _pb2.py files
+    for pb2_file in service_dir.glob("*_pb2.py"):
+        content = pb2_file.read_text()
+        original_content = content
         
-        # Process all _pb2_grpc.py files
-        for grpc_file in services_dir.glob("*_pb2_grpc.py"):
-            content = grpc_file.read_text()
-            original_content = content
-            
-            # Get the base name (e.g., "llm_service" from "llm_service_pb2_grpc.py")
-            base_name = grpc_file.stem.replace("_pb2_grpc", "")
-            
-            # Fix the import to use full path
-            old_import = f"import {base_name}_pb2 as"
-            new_import = f"from genx_components.microservices.grpc import {base_name}_pb2 as"
-            content = content.replace(old_import, new_import)
-            
-            # Also fix if there's no 'as' clause
-            old_import_simple = f"import {base_name}_pb2\n"
-            new_import_simple = f"from genx_components.microservices.grpc import {base_name}_pb2\n"
-            content = content.replace(old_import_simple, new_import_simple)
-            
-            # Fix common imports too
-            content = content.replace(
-                "import common_pb2 as common__pb2",
-                "from genx_components.common.grpc import common_pb2 as common__pb2"
-            )
-            
-            if content != original_content:
-                grpc_file.write_text(content)
-                print(f"  ✓ Fixed imports in {grpc_file.name}")
+        # Fix common imports
+        content = content.replace(
+            "import common_pb2 as common__pb2",
+            "from genx_components.common.grpc import common_pb2 as common__pb2"
+        )
+        
+        if content != original_content:
+            pb2_file.write_text(content)
+            print(f"  ✓ Fixed imports in {pb2_file.name}")
+    
+    # Process all _pb2_grpc.py files
+    for grpc_file in service_dir.glob("*_pb2_grpc.py"):
+        content = grpc_file.read_text()
+        original_content = content
+        
+        # Get the base name
+        base_name = grpc_file.stem.replace("_pb2_grpc", "")
+        
+        # Fix the import to use full path
+        old_import = f"import {base_name}_pb2 as"
+        new_import = f"from {base_import_path} import {base_name}_pb2 as"
+        content = content.replace(old_import, new_import)
+        
+        # Fix common imports too
+        content = content.replace(
+            "import common_pb2 as common__pb2",
+            "from genx_components.common.grpc import common_pb2 as common__pb2"
+        )
+        
+        if content != original_content:
+            grpc_file.write_text(content)
+            print(f"  ✓ Fixed imports in {grpc_file.name}")
 
 def create_all_init_files():
     """Create all necessary __init__.py files"""
@@ -147,12 +150,10 @@ def create_all_init_files():
         "genx_components/common/grpc",
         "genx_components/microservices",
         "genx_components/microservices/grpc",
-        "genx_components/microservices/llm",
-        "genx_components/microservices/llm/src",
-        "genx_components/microservices/llm/src/backends",
-        "genx_components/microservices/llm/src/core",
-        "genx_components/microservices/llm/src/service",
-        "genx_components/microservices/llm/src/models",
+        "services",
+        "services/proxy_service",
+        "services/proxy_service/src",
+        "services/proxy_service/src/grpc",
     ]
     
     for dir_path in dirs_needing_init:

@@ -51,16 +51,18 @@ class LLMMicroservice(GenxMicroservice):
                 'model_configs': self.config.model_configs,
                 'max_loaded_models': 3
             })
+
+            if self.config.preload_models and self.config.models_to_preload:
+                try:
+                    logger.info(f"Preloading models: {self.config.models_to_preload}")
+                    await self.model_manager.preload_models(self.config.models_to_preload)
+                    logger.info("Model preloading completed")
+                except Exception as e:
+                    logger.error(f"Failed to preload models: {e}")
+                    logger.warning("Continuing without preloaded models")
+            else:
+                logger.info("Model preloading disabled - models will be loaded on demand")
             
-            # Preload default model with error handling
-            try:
-                logger.info(f"Preloading default model: {self.config.default_model_id}")
-                await self.model_manager.preload_models([self.config.default_model_id])
-                logger.info("Model preloading completed")
-            except Exception as e:
-                logger.error(f"Failed to preload default model: {e}")
-                # For now, continue without preloading - models can be loaded on demand
-                logger.warning("Continuing without preloaded model - will load on first request")
             
             # Create service - this should not be None
             self.llm_service = LLMService(
