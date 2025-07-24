@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package genx.common.v1;
+
+option go_package = "github.com/genx/platform/api/common/v1;commonv1";
+option java_multiple_files = true;
+option java_package = "com.genx.platform.api.common.v1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// Standard metadata for all requests
+message RequestMetadata {
+  // Unique request ID for tracing
+  string request_id = 1;
+  
+  // User or client identifier
+  string user_id = 2;
+  
+  // Session identifier for conversation context
+  string session_id = 3;
+  
+  // Tenant ID for multi-tenancy
+  string tenant_id = 4;
+  
+  // Trace context for distributed tracing
+  map<string, string> trace_context = 5;
+  
+  // Request timestamp
+  google.protobuf.Timestamp timestamp = 6;
+  
+  // Additional metadata
+  map<string, string> metadata = 7;
+}
+
+// Standard response metadata
+message ResponseMetadata {
+  // Request ID this response corresponds to
+  string request_id = 1;
+  
+  // Processing duration in milliseconds
+  int64 duration_ms = 2;
+  
+  // Service that processed the request
+  string service_name = 3;
+  
+  // Service version
+  string service_version = 4;
+  
+  // Response timestamp
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// Error details following Google API design
+message ErrorDetail {
+  // Error code (e.g., "INVALID_ARGUMENT", "NOT_FOUND")
+  string code = 1;
+  
+  // Human-readable error message
+  string message = 2;
+  
+  // Additional error details
+  google.protobuf.Struct details = 3;
+}
+
+// Hardware requirements hint
+message HardwareRequirements {
+  // Minimum GPU memory in GB (0 means CPU only)
+  float min_gpu_memory_gb = 1;
+  
+  // Minimum RAM in GB
+  float min_ram_gb = 2;
+  
+  // Preferred hardware type
+  string preferred_hardware = 3;
+  
+  // Whether GPU is required
+  bool gpu_required = 4;
+}
+
+// Model information
+message ModelInfo {
+  // Model identifier (e.g., "llama-2-7b", "gpt-4")
+  string model_id = 1;
+  
+  // Model provider (e.g., "meta", "openai", "local")
+  string provider = 2;
+  
+  // Model version
+  string version = 3;
+  
+  // Hardware requirements
+  HardwareRequirements hardware_requirements = 4;
+  
+  // Model capabilities
+  repeated string capabilities = 5;
+  
+  // Model metadata
+  map<string, string> metadata = 6;
+}
+
+// Token usage information
+message TokenUsage {
+  // Input/prompt tokens
+  int32 prompt_tokens = 1;
+  
+  // Generated/completion tokens
+  int32 completion_tokens = 2;
+  
+  // Total tokens
+  int32 total_tokens = 3;
+  
+  // Estimated cost (if applicable)
+  double estimated_cost = 4;
+}

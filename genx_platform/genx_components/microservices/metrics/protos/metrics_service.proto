@@ -9,6 +9,7 @@ option java_package = "com.genx.platform.api.metrics.v1";
 
 import "common.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
 
 // Metrics service for system resource monitoring
 service MetricsService {
@@ -26,12 +27,7 @@ service MetricsService {
   
   // Get resource summary for dashboard
   rpc GetResourceSummary(GetResourceSummaryRequest) returns (GetResourceSummaryResponse);
-  
-  // Get metrics from multiple nodes (for distributed systems)
-  rpc GetClusterMetrics(GetClusterMetricsRequest) returns (GetClusterMetricsResponse);
 }
-
-// ==================== Request/Response Messages ====================
 
 // Request for getting system metrics
 message GetSystemMetricsRequest {
@@ -43,9 +39,6 @@ message GetSystemMetricsRequest {
   
   // Force fresh collection instead of cached
   bool force_refresh = 3;
-  
-  // Node identifier (optional, defaults to current node)
-  string node_id = 4;
 }
 
 // Response with system metrics
@@ -116,150 +109,50 @@ message SystemMetricsUpdate {
   }
 }
 
-// Request for historical metrics
+// Additional message definitions...
 message GetMetricsHistoryRequest {
-  // Standard request metadata
   genx.common.v1.RequestMetadata metadata = 1;
-  
-  // Start time
   google.protobuf.Timestamp start_time = 2;
-  
-  // End time
   google.protobuf.Timestamp end_time = 3;
-  
-  // Metric types to retrieve
   repeated MetricType metric_types = 4;
-  
-  // Resolution in seconds
   int32 resolution_seconds = 5;
-  
-  // Aggregation type
-  AggregationType aggregation = 6;
-  
-  // Node identifier (optional)
-  string node_id = 7;
-  
-  // Maximum number of data points to return
-  int32 max_data_points = 8;
-  
-  enum AggregationType {
-    AGGREGATION_TYPE_UNSPECIFIED = 0;
-    AGGREGATION_TYPE_RAW = 1;
-    AGGREGATION_TYPE_AVERAGE = 2;
-    AGGREGATION_TYPE_MAX = 3;
-    AGGREGATION_TYPE_MIN = 4;
-    AGGREGATION_TYPE_P95 = 5;
-    AGGREGATION_TYPE_P99 = 6;
-  }
 }
 
-// Response with historical metrics
 message GetMetricsHistoryResponse {
-  // Standard response metadata
   genx.common.v1.ResponseMetadata metadata = 1;
-  
-  // Historical data points
   repeated MetricsDataPoint data_points = 2;
-  
-  // Query metadata
   MetricsHistoryMetadata history_metadata = 3;
-  
-  // Error if any
   optional genx.common.v1.ErrorDetail error = 4;
 }
 
-// Request to refresh metrics
 message RefreshMetricsRequest {
-  // Standard request metadata
   genx.common.v1.RequestMetadata metadata = 1;
-  
-  // Node identifier (optional)
-  string node_id = 2;
-  
-  // Force collection even if recent data exists
-  bool force = 3;
 }
 
-// Response for refresh request
 message RefreshMetricsResponse {
-  // Standard response metadata
   genx.common.v1.ResponseMetadata metadata = 1;
-  
-  // Success status
   bool success = 2;
-  
-  // Refreshed metrics
   SystemMetrics metrics = 3;
-  
-  // Error if any
   optional genx.common.v1.ErrorDetail error = 4;
 }
 
-// Request for resource summary
 message GetResourceSummaryRequest {
-  // Standard request metadata
   genx.common.v1.RequestMetadata metadata = 1;
-  
-  // Include historical trend
   bool include_trend = 2;
-  
-  // Trend duration in seconds
   int32 trend_duration_seconds = 3;
 }
 
-// Response with resource summary
 message GetResourceSummaryResponse {
-  // Standard response metadata
   genx.common.v1.ResponseMetadata metadata = 1;
-  
-  // Resource summaries
   ResourceStatus cpu_status = 2;
   ResourceStatus memory_status = 3;
   ResourceStatus gpu_status = 4;
   ResourceStatus disk_status = 5;
   ResourceStatus network_status = 6;
-  
-  // Overall system health
   SystemHealth overall_health = 7;
-  
-  // Active alerts
   repeated ResourceAlert active_alerts = 8;
-  
-  // Error if any
   optional genx.common.v1.ErrorDetail error = 9;
 }
-
-// Request for cluster metrics
-message GetClusterMetricsRequest {
-  // Standard request metadata
-  genx.common.v1.RequestMetadata metadata = 1;
-  
-  // Node identifiers (empty = all nodes)
-  repeated string node_ids = 2;
-  
-  // Metric types to include
-  repeated MetricType metric_types = 3;
-  
-  // Include only unhealthy nodes
-  bool unhealthy_only = 4;
-}
-
-// Response with cluster metrics
-message GetClusterMetricsResponse {
-  // Standard response metadata
-  genx.common.v1.ResponseMetadata metadata = 1;
-  
-  // Metrics by node
-  map<string, SystemMetrics> node_metrics = 2;
-  
-  // Cluster-wide summary
-  ClusterSummary summary = 3;
-  
-  // Error if any
-  optional genx.common.v1.ErrorDetail error = 4;
-}
-
-// ==================== Data Types ====================
 
 // Types of metrics available
 enum MetricType {
@@ -274,60 +167,28 @@ enum MetricType {
 
 // Complete system metrics
 message SystemMetrics {
-  // CPU metrics
   CpuMetrics cpu = 1;
-  
-  // Memory metrics
   MemoryMetrics memory = 2;
-  
-  // GPU metrics (can be multiple GPUs)
   repeated GpuMetrics gpu = 3;
-  
-  // Disk metrics
   DiskMetrics disk = 4;
-  
-  // Network metrics
   NetworkMetrics network = 5;
-  
-  // Node/service identification
   string node_id = 6;
   string service_name = 7;
   string service_version = 8;
-  
-  // Labels for Prometheus compatibility
   map<string, string> labels = 9;
-  
-  // Collection timestamp
   google.protobuf.Timestamp collected_at = 10;
 }
 
 // CPU metrics
 message CpuMetrics {
-  // Overall CPU usage percentage
   double usage_percent = 1;
-  
-  // Per-core usage percentages
   repeated double per_core_percent = 2;
-  
-  // CPU frequency info
   CpuFrequency frequency = 3;
-  
-  // Load averages
   LoadAverage load_average = 4;
-  
-  // CPU count
   int32 count = 5;
-  
-  // Logical CPU count
   int32 count_logical = 6;
-  
-  // Process count
   int32 process_count = 7;
-  
-  // Thread count
   int32 thread_count = 8;
-  
-  // Context switches per second
   int64 context_switches_per_sec = 9;
   
   message CpuFrequency {
@@ -345,83 +206,30 @@ message CpuMetrics {
 
 // Memory metrics
 message MemoryMetrics {
-  // Total memory in bytes
   int64 total_bytes = 1;
-  
-  // Available memory in bytes
   int64 available_bytes = 2;
-  
-  // Used memory in bytes
   int64 used_bytes = 3;
-  
-  // Free memory in bytes
   int64 free_bytes = 4;
-  
-  // Memory usage percentage
   double percent = 5;
-  
-  // Swap memory info
   SwapMemory swap = 6;
-  
-  // Cached memory in bytes
-  int64 cached_bytes = 7;
-  
-  // Buffer memory in bytes
-  int64 buffer_bytes = 8;
-  
-  // Shared memory in bytes
-  int64 shared_bytes = 9;
   
   message SwapMemory {
     int64 total_bytes = 1;
     int64 used_bytes = 2;
     int64 free_bytes = 3;
     double percent = 4;
-    int64 swap_in_per_sec = 5;
-    int64 swap_out_per_sec = 6;
   }
 }
 
 // GPU metrics
 message GpuMetrics {
-  // GPU ID
   int32 id = 1;
-  
-  // GPU name
   string name = 2;
-  
-  // GPU load percentage
   double load_percent = 3;
-  
-  // GPU memory info
   GpuMemory memory = 4;
-  
-  // GPU temperature in Celsius
   double temperature_celsius = 5;
-  
-  // GPU UUID
   string uuid = 6;
-  
-  // Driver version
   string driver_version = 7;
-  
-  // Power usage in watts
-  double power_watts = 8;
-  
-  // Power limit in watts
-  double power_limit_watts = 9;
-  
-  // GPU clock speed in MHz
-  double clock_mhz = 10;
-  
-  // Memory clock speed in MHz
-  double memory_clock_mhz = 11;
-  
-  // PCIe link generation
-  int32 pcie_generation = 12;
-  
-  // PCIe link width
-  int32 pcie_width = 13;
   
   message GpuMemory {
     int64 total_bytes = 1;
@@ -433,17 +241,7 @@ message GpuMetrics {
 
 // Disk metrics
 message DiskMetrics {
-  // Overall disk usage
   DiskUsage usage = 1;
-  
-  // Disk I/O statistics
-  DiskIo io = 2;
-  
-  // Per-partition information
-  repeated DiskPartition partitions = 3;
-  
-  // Model storage specific metrics
-  ModelStorage model_storage = 4;
   
   message DiskUsage {
     int64 total_bytes = 1;
@@ -451,101 +249,29 @@ message DiskMetrics {
     int64 free_bytes = 3;
     double percent = 4;
   }
-  
-  message DiskIo {
-    int64 read_count = 1;
-    int64 write_count = 2;
-    int64 read_bytes = 3;
-    int64 write_bytes = 4;
-    int64 read_time_ms = 5;
-    int64 write_time_ms = 6;
-    double read_bytes_per_sec = 7;
-    double write_bytes_per_sec = 8;
-    double io_utilization_percent = 9;
-  }
-  
-  message DiskPartition {
-    string device = 1;
-    string mount_point = 2;
-    string filesystem_type = 3;
-    int64 total_bytes = 4;
-    int64 used_bytes = 5;
-    int64 free_bytes = 6;
-    double percent = 7;
-    string mount_options = 8;
-  }
-  
-  message ModelStorage {
-    string path = 1;
-    int64 total_bytes = 2;
-    int64 used_bytes = 3;
-    int64 free_bytes = 4;
-    double percent = 5;
-    int32 model_count = 6;
-    map<string, int64> model_sizes = 7; // model_name -> size_bytes
-  }
 }
 
 // Network metrics
 message NetworkMetrics {
-  // Network I/O statistics
   NetworkIo io = 1;
-  
-  // Connection counts by state
-  map<string, int32> connection_states = 2;
-  
-  // Per-interface statistics
-  repeated NetworkInterface interfaces = 3;
   
   message NetworkIo {
     int64 bytes_sent = 1;
     int64 bytes_received = 2;
     int64 packets_sent = 3;
     int64 packets_received = 4;
-    int64 errors_in = 5;
-    int64 errors_out = 6;
-    int64 dropped_in = 7;
-    int64 dropped_out = 8;
-    double bytes_sent_per_sec = 9;
-    double bytes_received_per_sec = 10;
-  }
-  
-  message NetworkInterface {
-    string name = 1;
-    bool is_up = 2;
-    int64 speed_mbps = 3;
-    int64 mtu = 4;
-    repeated string addresses = 5;
-    NetworkIo io = 6;
   }
 }
 
-// ==================== Alert & Status Types ====================
-
 // Resource alert
 message ResourceAlert {
-  // Alert ID
   string id = 1;
-  
-  // Resource type (cpu, memory, disk, gpu)
   string resource_type = 2;
-  
-  // Alert severity
   AlertSeverity severity = 3;
-  
-  // Alert message
   string message = 4;
-  
-  // Current value that triggered the alert
   double current_value = 5;
-  
-  // Threshold that was exceeded
   double threshold = 6;
-  
-  // When the alert was triggered
   google.protobuf.Timestamp triggered_at = 7;
-  
-  // Additional context
   map<string, string> context = 8;
   
   enum AlertSeverity {
@@ -558,19 +284,10 @@ message ResourceAlert {
 
 // Resource status summary
 message ResourceStatus {
-  // Resource health status
   HealthStatus status = 1;
-  
-  // Current usage percentage
   double usage_percent = 2;
-  
-  // Human-readable status message
   string message = 3;
-  
-  // Trend over time
   Trend trend = 4;
-  
-  // Predicted time to exhaustion (if applicable)
   optional int64 time_to_exhaustion_seconds = 5;
   
   enum HealthStatus {
@@ -598,65 +315,18 @@ enum SystemHealth {
   SYSTEM_HEALTH_UNKNOWN = 4;
 }
 
-// ==================== Historical Data Types ====================
-
 // Historical data point
 message MetricsDataPoint {
-  // Timestamp of the data point
   google.protobuf.Timestamp timestamp = 1;
-  
-  // Metrics at this point in time
   SystemMetrics metrics = 2;
 }
 
 // Metadata for historical query
 message MetricsHistoryMetadata {
-  // Actual start time of data
   google.protobuf.Timestamp start_time = 1;
-  
-  // Actual end time of data
   google.protobuf.Timestamp end_time = 2;
-  
-  // Number of data points
   int32 count = 3;
-  
-  // Resolution in seconds
   int32 resolution_seconds = 4;
-  
-  // Aggregation type used
   string aggregation_type = 5;
-  
-  // Data completeness percentage
   double completeness_percent = 6;
-}
-
-// ==================== Cluster Types ====================
-
-// Cluster summary
-message ClusterSummary {
-  // Total nodes
-  int32 total_nodes = 1;
-  
-  // Healthy nodes
-  int32 healthy_nodes = 2;
-  
-  // Warning nodes
-  int32 warning_nodes = 3;
-  
-  // Critical nodes
-  int32 critical_nodes = 4;
-  
-  // Aggregate resource usage
-  ResourceUsageSummary cpu_summary = 5;
-  ResourceUsageSummary memory_summary = 6;
-  ResourceUsageSummary gpu_summary = 7;
-  ResourceUsageSummary disk_summary = 8;
-  
-  message ResourceUsageSummary {
-    double average_percent = 1;
-    double max_percent = 2;
-    double min_percent = 3;
-    double p95_percent = 4;
-    double p99_percent = 5;
-  }
 }

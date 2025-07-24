@@ -1,0 +1,210 @@
+version: '3.8'
+
+services:
+  # Metrics Service
+  metrics-service:
+    build:
+      context: ../../../  # genx_platform directory
+      dockerfile: genx_components/microservices/metrics/Dockerfile
+    image: genx/metrics-service:${VERSION:-latest}
+    container_name: genx-metrics-service
+    hostname: metrics-service
+    ports:
+      - "50056:50056"  # gRPC
+      - "9091:9090"    # Prometheus metrics (changed to avoid conflict)
+    environment:
+      # Service Configuration
+      - SERVICE_NAME=metrics-service
+      - SERVICE_VERSION=${VERSION:-1.0.0}
+      - SERVICE_PORT=50056
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - DEBUG=false
+      
+      # gRPC Configuration
+      - GRPC_MAX_WORKERS=8
+      - GRPC_MAX_MESSAGE_LENGTH=104857600
+      
+      # Telemetry Configuration
+      - TELEMETRY_ENABLED=true
+      - TELEMETRY_ENDPOINT=http://otel-collector:4317
+      - METRICS_PORT=9090
+      
+      # Registry Configuration (optional)
+      - REGISTRY_ENABLED=false
+      - REGISTRY_ENDPOINT=http://consul:8500
+      
+      # Service Specific Configuration
+      - CACHE_TTL_SECONDS=30
+      - BACKGROUND_COLLECTION_INTERVAL=30
+      - MODEL_STORAGE_PATH=/models
+      
+    volumes:
+      # Model storage
+      - model-data:/models:ro
+      # Host system access for metrics collection (read-only)
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # For container metrics
+      # Disk metrics
+      - /:/host/root:ro
+      - /dev/disk:/dev/disk:ro
+      
+    networks:
+      - genx-network
+      
+    depends_on:
+      - otel-collector
+      
+    restart: unless-stopped
+    
+    # Important: Run in privileged mode for full system access
+    privileged: true
+    
+    # Network mode host for accurate network metrics (optional)
+    # network_mode: host  # Uncomment if you need accurate network metrics
+    
+    # PID mode for process metrics
+    pid: host
+    
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        # No limits on metrics service - it needs full access
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      # GPU access for metrics collection
+      device_requests:
+        - driver: nvidia
+          count: all  # Access to all GPUs
+          capabilities: [gpu, utility, compute]  # Full GPU capabilities
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=metrics"
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: genx-otel-collector
+    hostname: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./monitoring/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+      - "13133:13133" # Health check
+    networks:
+      - genx-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: genx-prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    networks:
+      - genx-network
+    restart: unless-stopped
+    depends_on:
+      - otel-collector
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: genx-grafana
+    hostname: grafana
+    ports:
+      - "3001:3000"  # Changed to avoid port conflict
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - genx-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Jaeger for Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: genx-jaeger
+    hostname: jaeger
+    ports:
+      - "16686:16686"  # UI
+      - "14268:14268"  # HTTP collector
+      - "14250:14250"  # gRPC collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=memory
+      - MEMORY_MAX_TRACES=10000
+    networks:
+      - genx-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  model-data:
+    driver: local
+
+networks:
+  genx-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16

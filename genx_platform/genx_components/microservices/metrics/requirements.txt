@@ -1,0 +1,48 @@
+# Core dependencies
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+grpcio-health-checking>=1.60.0
+grpcio-reflection>=1.60.0
+
+# Async support
+asyncio>=3.4.3
+aiofiles>=23.2.1
+
+# System monitoring
+psutil>=5.9.8
+py-cpuinfo>=9.0.0
+
+# GPU monitoring (optional but recommended)
+gputil>=1.4.0
+# nvidia-ml-py>=12.535.133  # Uncomment for detailed NVIDIA metrics
+
+# Configuration and environment
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Logging and monitoring
+structlog>=24.1.0
+python-json-logger>=2.0.7
+
+# OpenTelemetry for observability
+opentelemetry-api>=1.22.0
+opentelemetry-sdk>=1.22.0
+opentelemetry-instrumentation>=0.43b0
+opentelemetry-instrumentation-grpc>=0.43b0
+opentelemetry-exporter-otlp>=1.22.0
+opentelemetry-exporter-prometheus>=0.43b0
+
+# Prometheus metrics
+prometheus-client>=0.19.0
+
+# Testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Development tools (optional)
+black>=23.12.0
+isort>=5.13.0
+flake8>=7.0.0
+mypy>=1.8.0
