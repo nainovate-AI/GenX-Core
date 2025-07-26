@@ -1,0 +1,113 @@
+# genx_platform/genx_components/microservices/metrics/monitoring/prometheus/alerts/metrics_alerts.yml
+groups:
+  - name: metrics_service_alerts
+    interval: 30s
+    rules:
+      # Service Health
+      - alert: MetricsServiceDown
+        expr: up{job="metrics-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: metrics-service
+        annotations:
+          summary: "Metrics service is down"
+          description: "Metrics service {{ $labels.instance }} has been down for more than 2 minutes."
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="metrics-service"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: metrics-service
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Metrics service CPU usage is above 80% (current value: {{ $value }}%)"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="metrics-service"} / 1024 / 1024 / 1024 > 1.5
+        for: 5m
+        labels:
+          severity: warning
+          service: metrics-service
+        annotations:
+          summary: "High memory usage detected"
+          description: "Metrics service memory usage is above 1.5GB (current value: {{ $value }}GB)"
+
+      # gRPC Errors
+      - alert: HighGRPCErrorRate
+        expr: rate(grpc_server_handled_total{job="metrics-service",grpc_code!="OK"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: metrics-service
+        annotations:
+          summary: "High gRPC error rate"
+          description: "gRPC error rate is above 5% (current value: {{ $value }})"
+
+      # Response Time
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(grpc_server_handling_seconds_bucket{job="metrics-service"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: metrics-service
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is above 1 second (current value: {{ $value }}s)"
+
+      # Collection Failures
+      - alert: MetricCollectionFailure
+        expr: increase(metrics_collection_failures_total{job="metrics-service"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: metrics-service
+        annotations:
+          summary: "Metric collection failures detected"
+          description: "More than 5 collection failures in the last 5 minutes"
+
+  - name: system_alerts
+    interval: 30s
+    rules:
+      # Host CPU
+      - alert: HostHighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host high CPU usage"
+          description: "Host CPU usage is above 80% (current value: {{ $value }}%)"
+
+      # Host Memory
+      - alert: HostHighMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host high memory usage"
+          description: "Host memory usage is above 85% (current value: {{ $value }}%)"
+
+      # Disk Space
+      - alert: HostDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host disk space low"
+          description: "Disk space available is below 10% (current value: {{ $value }}%)"
+
+      # Container Restarts
+      - alert: ContainerRestarting
+        expr: rate(container_restart_count[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container restarting"
+          description: "Container {{ $labels.name }} is restarting"

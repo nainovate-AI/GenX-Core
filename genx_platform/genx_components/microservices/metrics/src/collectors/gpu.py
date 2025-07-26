@@ -4,9 +4,17 @@ Collects NVIDIA GPU metrics using GPUtil and pynvml
 """
 from typing import Dict, Any, List, Optional
 import platform
+import os
+import sys
 
 from .base import BaseCollector
-from ..utils.logger import setup_logging
+
+current_file = os.path.abspath(__file__)
+collectors_dir = os.path.dirname(current_file)
+src_dir = os.path.dirname(collectors_dir)
+sys.path.insert(0, src_dir)
+
+from genx_components.microservices.metrics.src.utils.logger import setup_logging
 
 logger = setup_logging(__name__)
 

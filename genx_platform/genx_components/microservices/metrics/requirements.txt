@@ -1,8 +1,9 @@
 # Core dependencies
-grpcio>=1.60.0
-grpcio-tools>=1.60.0
-grpcio-health-checking>=1.60.0
-grpcio-reflection>=1.60.0
+grpcio>=1.74.0
+grpcio-tools>=1.74.0
+grpcio-reflection>=1.74.0
+grpcio-health-checking>=1.74.0
+protobuf>=4.25.0
 
 # Async support
 asyncio>=3.4.3

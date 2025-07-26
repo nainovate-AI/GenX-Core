@@ -8,8 +8,16 @@ from typing import Any, Dict, Optional
 import logging
 import time
 from contextlib import contextmanager
+import sys
+import os
 
-from ..utils.logger import setup_logging
+# Add paths for imports
+current_file = os.path.abspath(__file__)
+collectors_dir = os.path.dirname(current_file)
+src_dir = os.path.dirname(collectors_dir)
+sys.path.insert(0, src_dir)
+
+from genx_components.microservices.metrics.src.utils.logger import setup_logging
 
 logger = setup_logging(__name__)
 

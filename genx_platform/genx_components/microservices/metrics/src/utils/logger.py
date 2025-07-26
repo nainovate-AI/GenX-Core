@@ -11,6 +11,8 @@ import os
 import structlog
 from pythonjsonlogger import jsonlogger
 
+# Global flag to prevent duplicate Prometheus initialization
+_prometheus_initialized = False
 
 def setup_logging(name: str) -> structlog.BoundLogger:
     """
@@ -260,9 +262,13 @@ def log_with_performance(logger: structlog.BoundLogger, operation: str):
     return _log_performance()
 
 
-# Prometheus metrics integration
 def setup_prometheus_logging():
     """Setup Prometheus metrics for logging events"""
+    global _prometheus_initialized
+    
+    if _prometheus_initialized:
+        return  # Prevent duplicate initialization
+    
     try:
         from prometheus_client import Counter, Histogram, Gauge
         
@@ -270,13 +276,15 @@ def setup_prometheus_logging():
         log_events_total = Counter(
             'log_events_total',
             'Total number of log events',
-            ['level', 'logger']
+            ['level', 'logger'],
+            registry=prometheus_client.REGISTRY
         )
         
         log_errors_total = Counter(
             'log_errors_total',
             'Total number of error logs',
-            ['logger', 'error_type']
+            ['logger', 'error_type'],
+            registry=prometheus_client.REGISTRY
         )
         
         # Add Prometheus processor to structlog
@@ -299,12 +307,18 @@ def setup_prometheus_logging():
         
         # Add to structlog processors
         current_processors = structlog.get_config()['processors']
-        current_processors.insert(-1, prometheus_processor)  # Insert before renderer
-        structlog.configure(processors=current_processors)
+        if prometheus_processor not in current_processors:
+            current_processors.insert(-1, prometheus_processor)  # Insert before renderer
+            structlog.configure(processors=current_processors)
+        
+        _prometheus_initialized = True
         
     except ImportError:
         pass  # Prometheus not available
-
+    except Exception as e:
+        # Log the error but don't crash the application
+        import logging
+        logging.error(f"Failed to setup Prometheus logging: {str(e)}")
 
 # Initialize Prometheus logging if available
 setup_prometheus_logging()

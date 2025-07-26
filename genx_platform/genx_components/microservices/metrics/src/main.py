@@ -1,7 +1,8 @@
+# genx_platform/genx_components/microservices/metrics/src/main.py
 #!/usr/bin/env python3
 """
 Metrics Microservice - Production Grade
-Collects and serves system metrics via gRPC
+Collects and serves system metrics via gRPC with security features
 """
 import asyncio
 import logging
@@ -10,6 +11,7 @@ import signal
 import sys
 from concurrent import futures
 from typing import Optional
+from pathlib import Path
 
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
@@ -37,23 +39,79 @@ from genx_components.microservices.grpc import (
     metrics_service_pb2,
     metrics_service_pb2_grpc,
 )
-from service.metrics_service import MetricsService
-from utils.logger import setup_logging
+
+# Import the appropriate service based on security configuration
+use_secure_service = os.environ.get('GRPC_TLS_ENABLED', 'true').lower() == 'true'
+if use_secure_service:
+    from genx_components.microservices.metrics.src.service.secure_metrics_service import SecureMetricsService as MetricsServiceImpl
+    from genx_components.microservices.metrics.src.service.secure_metrics_service import create_secure_server
+else:
+    from genx_components.microservices.metrics.src.service.metrics_service import MetricsService as MetricsServiceImpl
+
+from genx_components.microservices.metrics.src.utils.logger import setup_logging
 
 
 class MetricsServiceConfig(BaseServiceConfig):
     """Configuration specific to Metrics Service"""
+    # Service metadata
     service_name: str = "metrics-service"
+    service_version: str = "1.0.0"  # Added to match logger.py and MetricsService
     service_port: int = 50056
-    
+    environment: str = "production"  # Added to match logger.py
+
     # Cache settings
     cache_ttl_seconds: int = 30
-    
+
     # Collection settings
     background_collection_interval: int = 30
-    
+
     # Model storage
     model_storage_path: str = "/models"
+
+    # TLS settings
+    grpc_tls_enabled: bool = True
+    grpc_tls_cert_path: str = "/certs/server.crt"
+    grpc_tls_key_path: str = "/certs/server.key"
+    grpc_tls_ca_path: str = "/certs/ca.crt"
+
+    # Auth settings
+    enable_auth: bool = True
+    auth_token: str = "default-token"  # Renamed from metrics_auth_token for consistency
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = 1000
+    rate_limit_burst: int = 100
+
+    # Circuit breaker settings
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_failure_threshold: int = 5
+    circuit_breaker_timeout_seconds: int = 60
+    circuit_breaker_success_threshold: int = 2
+
+    # Alert thresholds
+    alert_cpu_threshold: float = 80.0
+    alert_memory_threshold: float = 85.0
+    alert_disk_threshold: float = 90.0
+
+    # Grafana credentials
+    grafana_user: str = "admin"
+    grafana_password: str = "admin"
+
+    # SMTP settings for email alerts
+    smtp_host: str = "smtp.gmail.com:587"
+    smtp_user: str = "your-email@gmail.com"
+    smtp_password: str = "your-app-password"
+    alert_email_from: str = "alerts@genx.ai"
+
+    # Notification integrations
+    slack_webhook_url: str = ""
+    pagerduty_service_key: str = ""
+
+    # Telemetry settings (from BaseServiceConfig, if needed)
+    telemetry_enabled: bool = True
+    telemetry_endpoint: str = ""
+    grpc_max_message_length: int = 4 * 1024 * 1024  # 4MB default
+    grpc_max_workers: int = 10  # Default thread pool size
+
 
 # Setup logging
 logger = setup_logging(__name__)
@@ -90,119 +148,107 @@ async def serve() -> None:
     
     # Log startup
     logger.info(f"Starting {config.service_name} on port {config.service_port}")
+    logger.info(f"TLS enabled: {config.grpc_tls_enabled}")
+    logger.info(f"Authentication enabled: {config.enable_auth}")
+    logger.info(f"Rate limiting enabled: {config.rate_limit_enabled}")
     
-    # Create server with production options
-    server_options = [
-        ('grpc.max_send_message_length', config.grpc_max_message_length),
-        ('grpc.max_receive_message_length', config.grpc_max_message_length),
-        ('grpc.keepalive_time_ms', 10000),
-        ('grpc.keepalive_timeout_ms', 5000),
-        ('grpc.keepalive_permit_without_calls', True),
-        ('grpc.http2.max_pings_without_data', 0),
-        ('grpc.http2.min_time_between_pings_ms', 10000),
-        ('grpc.max_connection_idle_ms', 300000),  # 5 minutes
-        ('grpc.max_connection_age_ms', 3600000),  # 1 hour
-        ('grpc.max_connection_age_grace_ms', 5000),
-        ('grpc.http2.max_frame_size', 16384),
-        ('grpc.enable_retries', 1),
-        ('grpc.service_config', '{"retryPolicy": {"maxAttempts": 3, "initialBackoff": "0.1s", "maxBackoff": "1s", "backoffMultiplier": 2}}')
-    ]
-    
-    # Create async server
-    _server = grpc.aio.server(
-        futures.ThreadPoolExecutor(max_workers=config.grpc_max_workers),
-        options=server_options,
-        maximum_concurrent_rpcs=100
-    )
-    
-    # Initialize and add services
-    metrics_service = MetricsService(config, _telemetry)
-    await metrics_service.initialize()
-    
-    # Add main service
-    metrics_service_pb2_grpc.add_MetricsServiceServicer_to_server(
-        metrics_service, _server
-    )
-    
-    # Add health service
-    health_servicer = health.HealthServicer()
-    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, _server)
-    health_servicer.set(
-        "genx.metrics.v1.MetricsService",
-        health_pb2.HealthCheckResponse.SERVING
-    )
-    
-    # Add reflection for debugging
-    if config.debug or config.environment == "development":
-        SERVICE_NAMES = (
+    # Create server based on security configuration
+    if use_secure_service:
+        _server = await create_secure_server(config, _telemetry)
+    else:
+        # Create standard server for development
+        server_options = [
+            ('grpc.max_send_message_length', config.grpc_max_message_length),
+            ('grpc.max_receive_message_length', config.grpc_max_message_length),
+            ('grpc.keepalive_time_ms', 10000),
+            ('grpc.keepalive_timeout_ms', 5000),
+        ]
+        
+        _server = grpc.aio.server(
+            futures.ThreadPoolExecutor(max_workers=config.grpc_max_workers),
+            options=server_options
+        )
+        
+        # Add metrics service
+        metrics_service = MetricsServiceImpl(config, _telemetry)
+        await metrics_service.initialize()
+        metrics_service_pb2_grpc.add_MetricsServiceServicer_to_server(
+            metrics_service, _server
+        )
+        
+        # Add health service
+        health_servicer = health.HealthServicer()
+        health_pb2_grpc.add_HealthServicer_to_server(health_servicer, _server)
+        health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
+        
+        # Add reflection
+        service_names = [
             metrics_service_pb2.DESCRIPTOR.services_by_name['MetricsService'].full_name,
             health_pb2.DESCRIPTOR.services_by_name['Health'].full_name,
             reflection.SERVICE_NAME,
-        )
-        reflection.enable_server_reflection(SERVICE_NAMES, _server)
-    
-    # Bind to port
-    listen_addr = f'[::]:{config.service_port}'
-    _server.add_insecure_port(listen_addr)
-    logger.info(f"{config.service_name} starting on {listen_addr}")
+        ]
+        reflection.enable_server_reflection(service_names, _server)
+        
+        # Add port
+        _server.add_insecure_port(f'[::]:{config.service_port}')
     
     # Start server
     await _server.start()
+    logger.info(f"Server started successfully on port {config.service_port}")
     
-    logger.info(
-        f"{config.service_name} started successfully",
-        extra={
-            "port": config.service_port,
-            "environment": config.environment,
-            "workers": config.grpc_max_workers,
-            "telemetry_enabled": config.telemetry_enabled,
-            "reflection_enabled": config.debug or config.environment == "development"
-        }
-    )
+    # Setup shutdown handler
+    def shutdown_handler(signum, frame):
+        logger.info(f"Received signal {signum}, initiating shutdown...")
+        asyncio.create_task(shutdown())
     
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
+    
+    # Keep server running
     try:
         await _server.wait_for_termination()
-    except asyncio.CancelledError:
-        logger.info("Server cancelled, shutting down...")
-        await shutdown()
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
 
 
-async def shutdown() -> None:
+async def shutdown():
     """Graceful shutdown"""
-    global _server
+    global _server, _telemetry
+    
+    logger.info("Starting graceful shutdown...")
     
     if _server:
-        logger.info("Initiating graceful shutdown...")
-        
         # Stop accepting new requests
-        await _server.stop(grace=5.0)
-        
-        logger.info("Metrics service stopped")
-
-
-def handle_signal(signum: int, frame) -> None:
-    """Handle shutdown signals"""
-    logger.info(f"Received signal {signum}")
+        await _server.stop(grace=10)
+        logger.info("Server stopped")
     
-    # Create task for shutdown
-    asyncio.create_task(shutdown())
+    if _telemetry:
+        _telemetry.shutdown()
+        logger.info("Telemetry shutdown")
+    
+    logger.info("Shutdown complete")
 
 
-def main() -> None:
+async def main():
     """Main entry point"""
-    # Setup signal handlers
-    signal.signal(signal.SIGTERM, handle_signal)
-    signal.signal(signal.SIGINT, handle_signal)
-    
-    # Run server
     try:
-        asyncio.run(serve())
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+        await serve()
     except Exception as e:
-        logger.error(f"Server failed: {e}", exc_info=True)
+        logger.error(f"Server failed with error: {e}", exc_info=True)
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    # Check if TLS certificates exist when TLS is enabled
+    if use_secure_service:
+        cert_path = os.environ.get('GRPC_TLS_CERT_PATH', '/certs/server.crt')
+        key_path = os.environ.get('GRPC_TLS_KEY_PATH', '/certs/server.key')
+        ca_path = os.environ.get('GRPC_TLS_CA_PATH', '/certs/ca.crt')
+        
+        if not all(Path(p).exists() for p in [cert_path, key_path, ca_path]):
+            logger.warning("TLS certificates not found. Please run 'make certs-generate' first.")
+            logger.info("Starting in insecure mode for development...")
+            use_secure_service = False
+            os.environ['GRPC_TLS_ENABLED'] = 'false'
+    
+    asyncio.run(main())

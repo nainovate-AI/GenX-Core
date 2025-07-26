@@ -14,8 +14,10 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 # Add genx_platform to path
 current_file = os.path.abspath(__file__)
-metrics_src = os.path.dirname(os.path.dirname(current_file))
-microservices_dir = os.path.dirname(metrics_src)
+service_dir = os.path.dirname(current_file)
+src_dir = os.path.dirname(service_dir)
+metrics_root = os.path.dirname(src_dir)
+microservices_dir = os.path.dirname(metrics_root)
 genx_components = os.path.dirname(microservices_dir)
 genx_platform = os.path.dirname(genx_components)
 sys.path.insert(0, genx_platform)
@@ -26,11 +28,10 @@ from genx_components.microservices.grpc import (
     metrics_service_pb2_grpc,
 )
 
-# Add local imports
-sys.path.insert(0, metrics_src)
-from src.collectors.metrics_collector import MetricsCollector
-from src.utils.cache import MetricsCache
-from src.utils.logger import setup_logging
+# Import using absolute paths
+from genx_components.microservices.metrics.src.collectors.metrics_collector import MetricsCollector
+from genx_components.microservices.metrics.src.utils.cache import MetricsCache
+from genx_components.microservices.metrics.src.utils.logger import setup_logging
 
 logger = setup_logging(__name__)
 
