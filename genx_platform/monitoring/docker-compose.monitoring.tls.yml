@@ -194,6 +194,8 @@ services:
       - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
       - ../infrastructure/certs/server/otel-collector.crt:/certs/server.crt:ro
       - ../infrastructure/certs/server/otel-collector.key:/certs/server.key:ro
+      - ../infrastructure/certs/client/monitoring-client.crt:/certs/client.crt:ro
+      - ../infrastructure/certs/client/monitoring-client.key:/certs/client.key:ro
     ports:
       - "4317:4317"     # OTLP gRPC with TLS
       - "4319:4318"     # OTLP HTTP with TLS (mapped to different host port)

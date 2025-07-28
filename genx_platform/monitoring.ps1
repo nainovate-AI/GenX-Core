@@ -79,7 +79,7 @@ function Test-Prerequisites {
     }
     
     # Check if running from correct directory
-    if (-not (Test-Path "monitoring/docker-compose.monitoring.yml")) {
+    if (-not (Test-Path "monitoring/docker-compose.monitoring.tls.yml")) {
         Write-ColorOutput "   Not in GenX platform root directory" "Error"
         Write-ColorOutput "    Please run this script from the genx_platform root directory" "Warning"
         return $false
@@ -203,7 +203,7 @@ function Start-Monitoring {
         $composeFile = "monitoring/docker-compose.monitoring.tls.yml"
         Write-ColorOutput "Using TLS-enabled configuration" "Info"
     } else {
-        $composeFile = "monitoring/docker-compose.monitoring.yml"
+        $composeFile = "monitoring/docker-compose.monitoring.tls.yml"
         Write-ColorOutput "Using standard configuration (no TLS)" "Warning"
     }
     
@@ -262,7 +262,7 @@ function Stop-Monitoring {
     
     Write-ColorOutput "Stopping monitoring services..." "Info"
     
-    $composeCmd = "docker-compose -f monitoring/docker-compose.monitoring.yml down"
+    $composeCmd = "docker-compose -f monitoring/docker-compose.monitoring.tls.yml down"
     
     if ($RemoveVolumes) {
         $composeCmd += " -v"
@@ -296,7 +296,7 @@ function Show-Status {
     Write-Header "Platform Monitoring Status"
     
     Write-ColorOutput "Container Status:" "Info"
-    docker-compose -f monitoring/docker-compose.monitoring.yml ps
+    docker-compose -f monitoring/docker-compose.monitoring.tls.yml ps
     
     Write-ColorOutput "`nResource Usage:" "Info"
     $containers = @(
@@ -323,7 +323,7 @@ function Show-Logs {
     
     Write-Header "Platform Monitoring Logs"
     
-    $composeCmd = "docker-compose -f monitoring/docker-compose.monitoring.yml logs"
+    $composeCmd = "docker-compose -f monitoring/docker-compose.monitoring.tls.yml logs"
     
     if ($Service) {
         $composeCmd += " $Service"
