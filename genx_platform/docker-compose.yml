@@ -1,0 +1,158 @@
+# genx_platform/docker-compose.yml
+# Main platform orchestration file
+version: '3.8'
+
+services:
+  # Service Discovery - Consul
+  consul:
+    image: hashicorp/consul:1.17
+    container_name: genx-consul
+    hostname: consul
+    ports:
+      - "8500:8500"      # HTTP API & UI
+      - "8600:8600/udp"  # DNS
+    command: agent -server -ui -node=server-1 -bootstrap-expect=1 -client=0.0.0.0
+    volumes:
+      - consul-data:/consul/data
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    labels:
+      com.genx.service: "consul"
+      com.genx.component: "infrastructure"
+
+  # API Gateway / Load Balancer - Envoy
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    container_name: genx-envoy
+    hostname: envoy
+    command: ["-c", "/etc/envoy/envoy.yaml", "--service-cluster", "genx-gateway"]
+    volumes:
+      - ./infrastructure/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./infrastructure/certs:/certs:ro
+    ports:
+      - "50050:50050"  # Unified gRPC endpoint
+      - "8001:8001"    # HTTP API endpoint
+      - "9901:9901"    # Envoy admin
+    networks:
+      - genx-platform-network
+    depends_on:
+      - consul
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '1'
+          memory: 256M
+    labels:
+      com.genx.service: "envoy"
+      com.genx.component: "infrastructure"
+
+  # Model Cache / Storage
+  minio:
+    image: minio/minio:latest
+    container_name: genx-minio
+    hostname: minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    volumes:
+      - minio-data:/data
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    labels:
+      com.genx.service: "minio"
+      com.genx.component: "infrastructure"
+
+  # Message Queue (for async operations)
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: genx-rabbitmq
+    hostname: rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-genx}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-genx123}
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    labels:
+      com.genx.service: "rabbitmq"
+      com.genx.component: "infrastructure"
+
+  # Cache Layer
+  redis:
+    image: redis:7-alpine
+    container_name: genx-redis
+    hostname: redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+    labels:
+      com.genx.service: "redis"
+      com.genx.component: "infrastructure"
+
+volumes:
+  consul-data:
+    driver: local
+  minio-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  genx-platform-network:
+    name: genx-platform-network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: genx_bridge
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"

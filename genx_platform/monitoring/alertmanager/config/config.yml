@@ -1,0 +1,72 @@
+# genx_platform/monitoring/alertmanager/config/config.yml
+global:
+  resolve_timeout: 5m
+  smtp_from: 'alerts@genx.ai'
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_auth_username: '${SMTP_USER}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+
+# The root route on which each incoming alert enters.
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+  routes:
+    # Critical alerts
+    - match:
+        severity: critical
+      receiver: critical
+      continue: true
+    
+    # Platform alerts
+    - match:
+        component: platform
+      receiver: platform-team
+    
+    # Monitoring alerts
+    - match:
+        component: monitoring
+      receiver: ops-team
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://webhook-receiver:5001/default'
+        send_resolved: true
+
+  - name: 'critical'
+    email_configs:
+      - to: 'critical-alerts@genx.ai'
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+    webhook_configs:
+      - url: 'http://webhook-receiver:5001/critical'
+        send_resolved: true
+
+  - name: 'platform-team'
+    email_configs:
+      - to: 'platform-team@genx.ai'
+        headers:
+          Subject: '[Platform] {{ .GroupLabels.alertname }}'
+
+  - name: 'ops-team'
+    email_configs:
+      - to: 'ops-team@genx.ai'
+        headers:
+          Subject: '[Monitoring] {{ .GroupLabels.alertname }}'
+
+# Inhibition rules
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service', 'instance']
+  
+  - source_match:
+      alertname: 'NodeDown'
+    target_match:
+      alertname: 'ServiceDown'
+    equal: ['instance']

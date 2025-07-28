@@ -16,6 +16,7 @@ from pathlib import Path
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
+from pydantic import Field
 
 # Add genx_platform to Python path
 current_file = os.path.abspath(__file__)
@@ -53,64 +54,71 @@ from genx_components.microservices.metrics.src.utils.logger import setup_logging
 
 class MetricsServiceConfig(BaseServiceConfig):
     """Configuration specific to Metrics Service"""
-    # Service metadata
-    service_name: str = "metrics-service"
-    service_version: str = "1.0.0"  # Added to match logger.py and MetricsService
-    service_port: int = 50056
-    environment: str = "production"  # Added to match logger.py
+    # Service metadata - these override BaseServiceConfig defaults
+    service_name: str = Field(default="metrics-service", env='SERVICE_NAME')
+    service_version: str = Field(default="1.0.0", env='SERVICE_VERSION')
+    service_port: int = Field(default=50056, env='SERVICE_PORT')
+    environment: str = Field(default="production", env='ENVIRONMENT')
 
     # Cache settings
-    cache_ttl_seconds: int = 30
+    cache_ttl_seconds: int = Field(default=30, env='CACHE_TTL_SECONDS')
 
     # Collection settings
-    background_collection_interval: int = 30
+    background_collection_interval: int = Field(default=30, env='BACKGROUND_COLLECTION_INTERVAL')
 
     # Model storage
-    model_storage_path: str = "/models"
+    model_storage_path: str = Field(default="/models", env='MODEL_STORAGE_PATH')
 
     # TLS settings
-    grpc_tls_enabled: bool = True
-    grpc_tls_cert_path: str = "/certs/server.crt"
-    grpc_tls_key_path: str = "/certs/server.key"
-    grpc_tls_ca_path: str = "/certs/ca.crt"
+    grpc_tls_enabled: bool = Field(default=True, env='GRPC_TLS_ENABLED')
+    grpc_tls_cert_path: str = Field(default="/certs/server.crt", env='GRPC_TLS_CERT_PATH')
+    grpc_tls_key_path: str = Field(default="/certs/server.key", env='GRPC_TLS_KEY_PATH')
+    grpc_tls_ca_path: str = Field(default="/certs/ca.crt", env='GRPC_TLS_CA_PATH')
 
-    # Auth settings
-    enable_auth: bool = True
-    auth_token: str = "default-token"  # Renamed from metrics_auth_token for consistency
-    rate_limit_enabled: bool = True
-    rate_limit_requests_per_minute: int = 1000
-    rate_limit_burst: int = 100
+    # Auth settings - Fixed to use AUTH_TOKEN environment variable
+    enable_auth: bool = Field(default=True, env='ENABLE_AUTH')
+    auth_token: str = Field(default="default-token", env='AUTH_TOKEN')  # Maps to AUTH_TOKEN env var
+    rate_limit_enabled: bool = Field(default=True, env='RATE_LIMIT_ENABLED')
+    rate_limit_requests_per_minute: int = Field(default=1000, env='RATE_LIMIT_REQUESTS_PER_MINUTE')
+    rate_limit_burst: int = Field(default=100, env='RATE_LIMIT_BURST')
 
     # Circuit breaker settings
-    circuit_breaker_enabled: bool = True
-    circuit_breaker_failure_threshold: int = 5
-    circuit_breaker_timeout_seconds: int = 60
-    circuit_breaker_success_threshold: int = 2
+    circuit_breaker_enabled: bool = Field(default=True, env='CIRCUIT_BREAKER_ENABLED')
+    circuit_breaker_failure_threshold: int = Field(default=5, env='CIRCUIT_BREAKER_FAILURE_THRESHOLD')
+    circuit_breaker_timeout_seconds: int = Field(default=60, env='CIRCUIT_BREAKER_TIMEOUT_SECONDS')
+    circuit_breaker_success_threshold: int = Field(default=2, env='CIRCUIT_BREAKER_SUCCESS_THRESHOLD')
 
     # Alert thresholds
-    alert_cpu_threshold: float = 80.0
-    alert_memory_threshold: float = 85.0
-    alert_disk_threshold: float = 90.0
+    alert_cpu_threshold: float = Field(default=80.0, env='ALERT_CPU_THRESHOLD')
+    alert_memory_threshold: float = Field(default=85.0, env='ALERT_MEMORY_THRESHOLD')
+    alert_disk_threshold: float = Field(default=90.0, env='ALERT_DISK_THRESHOLD')
 
     # Grafana credentials
-    grafana_user: str = "admin"
-    grafana_password: str = "admin"
+    grafana_user: str = Field(default="admin", env='GRAFANA_USER')
+    grafana_password: str = Field(default="admin", env='GRAFANA_PASSWORD')
 
     # SMTP settings for email alerts
-    smtp_host: str = "smtp.gmail.com:587"
-    smtp_user: str = "your-email@gmail.com"
-    smtp_password: str = "your-app-password"
-    alert_email_from: str = "alerts@genx.ai"
+    smtp_host: str = Field(default="smtp.gmail.com:587", env='SMTP_HOST')
+    smtp_user: str = Field(default="your-email@gmail.com", env='SMTP_USER')
+    smtp_password: str = Field(default="your-app-password", env='SMTP_PASSWORD')
+    alert_email_from: str = Field(default="alerts@genx.ai", env='ALERT_EMAIL_FROM')
 
     # Notification integrations
-    slack_webhook_url: str = ""
-    pagerduty_service_key: str = ""
+    slack_webhook_url: str = Field(default="", env='SLACK_WEBHOOK_URL')
+    pagerduty_service_key: str = Field(default="", env='PAGERDUTY_SERVICE_KEY')
 
-    # Telemetry settings (from BaseServiceConfig, if needed)
-    telemetry_enabled: bool = True
-    telemetry_endpoint: str = ""
-    grpc_max_message_length: int = 4 * 1024 * 1024  # 4MB default
-    grpc_max_workers: int = 10  # Default thread pool size
+    # Telemetry settings (inherited from BaseServiceConfig but can be overridden)
+    telemetry_enabled: bool = Field(default=True, env='TELEMETRY_ENABLED')
+    telemetry_endpoint: str = Field(default="http://otel-collector:4317", env='TELEMETRY_ENDPOINT')
+    grpc_max_message_length: int = Field(default=4 * 1024 * 1024, env='GRPC_MAX_MESSAGE_LENGTH')  # 4MB default
+    grpc_max_workers: int = Field(default=10, env='GRPC_MAX_WORKERS')  # Default thread pool size
+
+    class Config:
+        # This allows the configuration to accept extra fields from environment
+        # without throwing validation errors
+        extra = 'ignore'  # Changed from 'forbid' to 'ignore' to handle extra env vars
+        env_file = '.env'
+        case_sensitive = False
 
 
 # Setup logging
@@ -182,73 +190,71 @@ async def serve() -> None:
         health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
         
         # Add reflection
-        service_names = [
-            metrics_service_pb2.DESCRIPTOR.services_by_name['MetricsService'].full_name,
-            health_pb2.DESCRIPTOR.services_by_name['Health'].full_name,
-            reflection.SERVICE_NAME,
-        ]
-        reflection.enable_server_reflection(service_names, _server)
+        reflection.enable_server_reflection(
+            (
+                metrics_service_pb2.DESCRIPTOR.services_by_name["MetricsService"].full_name,
+                health_pb2.DESCRIPTOR.services_by_name["Health"].full_name,
+                reflection.SERVICE_NAME,
+            ),
+            _server,
+        )
         
-        # Add port
-        _server.add_insecure_port(f'[::]:{config.service_port}')
+        # Start server
+        _server.add_insecure_port(f"[::]:{config.service_port}")
+        await _server.start()
     
-    # Start server
-    await _server.start()
-    logger.info(f"Server started successfully on port {config.service_port}")
-    
-    # Setup shutdown handler
-    def shutdown_handler(signum, frame):
-        logger.info(f"Received signal {signum}, initiating shutdown...")
-        asyncio.create_task(shutdown())
-    
-    signal.signal(signal.SIGTERM, shutdown_handler)
-    signal.signal(signal.SIGINT, shutdown_handler)
+    logger.info(f"{config.service_name} started successfully")
     
     # Keep server running
     try:
         await _server.wait_for_termination()
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
+    except asyncio.CancelledError:
+        logger.info("Server cancelled")
 
 
-async def shutdown():
+async def shutdown(signal_received=None):
     """Graceful shutdown"""
-    global _server, _telemetry
-    
-    logger.info("Starting graceful shutdown...")
+    logger.info(f"Shutdown signal received: {signal_received}")
     
     if _server:
-        # Stop accepting new requests
-        await _server.stop(grace=10)
-        logger.info("Server stopped")
+        logger.info("Stopping gRPC server...")
+        await _server.stop(grace=30)
     
     if _telemetry:
+        logger.info("Flushing telemetry...")
         _telemetry.shutdown()
-        logger.info("Telemetry shutdown")
     
     logger.info("Shutdown complete")
 
 
+def handle_signal(sig, frame):
+    """Handle shutdown signals"""
+    asyncio.create_task(shutdown(sig))
+
+
 async def main():
     """Main entry point"""
+    # Setup signal handlers
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+    
     try:
         await serve()
     except Exception as e:
         logger.error(f"Server failed with error: {e}", exc_info=True)
-        sys.exit(1)
+        await shutdown()
+        raise
 
 
 if __name__ == "__main__":
-    # Check if TLS certificates exist when TLS is enabled
-    if use_secure_service:
-        cert_path = os.environ.get('GRPC_TLS_CERT_PATH', '/certs/server.crt')
-        key_path = os.environ.get('GRPC_TLS_KEY_PATH', '/certs/server.key')
-        ca_path = os.environ.get('GRPC_TLS_CA_PATH', '/certs/ca.crt')
-        
-        if not all(Path(p).exists() for p in [cert_path, key_path, ca_path]):
-            logger.warning("TLS certificates not found. Please run 'make certs-generate' first.")
-            logger.info("Starting in insecure mode for development...")
-            use_secure_service = False
-            os.environ['GRPC_TLS_ENABLED'] = 'false'
+    # Set up asyncio event loop
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        sys.exit(1)

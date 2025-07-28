@@ -1,7 +1,9 @@
 # genx_platform/genx_components/microservices/metrics/docker-compose.yml
+# Metrics Microservice - Standalone deployment
+version: '3.8'
 
 services:
-  # Metrics Service
+  # Metrics Service Only
   metrics-service:
     build:
       context: ../../../  # genx_platform directory
@@ -12,8 +14,8 @@ services:
     container_name: genx-metrics-service
     hostname: metrics-service
     ports:
-      - "50056:50056"  # gRPC
-      - "9091:9090"    # Prometheus metrics
+      - "50056:50056"  # gRPC port
+      - "9091:9090"    # Prometheus metrics port (mapped to avoid conflict)
     environment:
       # Service Configuration
       - SERVICE_NAME=metrics-service
@@ -30,12 +32,12 @@ services:
       - GRPC_TLS_KEY_PATH=/certs/server.key
       - GRPC_TLS_CA_PATH=/certs/ca.crt
       
-      # Telemetry Configuration
+      # Telemetry Configuration (points to platform OTel collector)
       - TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-true}
       - TELEMETRY_ENDPOINT=${TELEMETRY_ENDPOINT:-http://otel-collector:4317}
       - METRICS_PORT=9090
       
-      # Registry Configuration
+      # Registry Configuration (points to platform Consul)
       - REGISTRY_ENABLED=${REGISTRY_ENABLED:-true}
       - REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT:-http://consul:8500}
       
@@ -46,7 +48,7 @@ services:
       
       # Security
       - ENABLE_AUTH=${ENABLE_AUTH:-true}
-      - AUTH_TOKEN=${METRICS_AUTH_TOKEN}
+      - AUTH_TOKEN=${AUTH_TOKEN}
       
       # Rate Limiting
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
@@ -69,18 +71,13 @@ services:
       - /dev/disk:/dev/disk:ro
       
     networks:
-      - genx-network
-      
-    depends_on:
-      - otel-collector
-      - consul
+      - genx-platform-network
       
     restart: unless-stopped
     
     # Security Configuration
     security_opt:
       - no-new-privileges:true
-      - apparmor:docker-default
     cap_drop:
       - ALL
     cap_add:
@@ -113,88 +110,22 @@ services:
       timeout: 10s
       start_period: 40s
       retries: 3
-
-  # OpenTelemetry Collector
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
-    container_name: genx-otel-collector
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./monitoring/otel-collector/config.yaml:/etc/otel-collector-config.yaml:ro
-      - ./certs:/certs:ro
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8888:8888"   # Prometheus metrics
-      - "8889:8889"   # Prometheus exporter
-      - "13133:13133" # Health check
-      - "55679:55679" # zPages
-    networks:
-      - genx-network
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-
-  # Service Discovery - Consul
-  consul:
-    image: hashicorp/consul:latest
-    container_name: genx-consul
-    ports:
-      - "8500:8500"
-      - "8600:8600/udp"
-    command: agent -server -ui -node=server-1 -bootstrap-expect=1 -client=0.0.0.0
-    volumes:
-      - consul-data:/consul/data
-    networks:
-      - genx-network
-    restart: unless-stopped
-    environment:
-      - CONSUL_BIND_INTERFACE=eth0
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-
-  # Load Balancer - Envoy
-  envoy:
-    image: envoyproxy/envoy:v1.28-latest
-    container_name: genx-envoy
-    command: ["-c", "/etc/envoy/envoy.yaml", "--service-cluster", "metrics-lb"]
-    volumes:
-      - ./monitoring/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
-      - ./certs:/certs:ro
-    ports:
-      - "50050:50050"  # Load balanced gRPC endpoint
-      - "9901:9901"    # Envoy admin
-    networks:
-      - genx-network
-    depends_on:
-      - metrics-service
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
+    
+    # Labels for service discovery
+    labels:
+      com.genx.service: "metrics-service"
+      com.genx.component: "genx"
+      com.genx.microservice: "true"
+      com.genx.port.grpc: "50056"
+      com.genx.port.metrics: "9090"
+      consul.service: "metrics-service"
+      consul.tags: "genx,microservice,grpc,metrics"
 
 volumes:
   model-data:
     driver: local
-  consul-data:
-    driver: local
 
 networks:
-  genx-network:
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.21.0.0/16  # Changed from 172.20.0.0/16 to avoid conflicts
-    driver_opts:
-      com.docker.network.bridge.name: genx_bridge
-      com.docker.network.bridge.enable_icc: "true"
-      com.docker.network.bridge.enable_ip_masquerade: "true"
+  genx-platform-network:
+    external: true
+    name: genx-platform-network

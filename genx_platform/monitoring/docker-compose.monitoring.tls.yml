@@ -1,0 +1,329 @@
+# genx_platform/monitoring/docker-compose.monitoring.tls.yml
+# Platform-wide monitoring stack with TLS/SSL enabled
+version: '3.8'
+
+services:
+  # Prometheus with TLS
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: genx-prometheus
+    hostname: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.config.file=/etc/prometheus/web.yml'
+    volumes:
+      - ./prometheus/prometheus-tls.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/web-config.yml:/etc/prometheus/web.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+      # TLS certificates
+      - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
+      - ../infrastructure/certs/server/monitoring.crt:/certs/server.crt:ro
+      - ../infrastructure/certs/server/monitoring.key:/certs/server.key:ro
+      - ../infrastructure/certs/client/monitoring-client.crt:/certs/client.crt:ro
+      - ../infrastructure/certs/client/monitoring-client.key:/certs/client.key:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    labels:
+      com.genx.service: "prometheus"
+      com.genx.component: "monitoring"
+      com.genx.tls: "enabled"
+
+  # Grafana with TLS
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: genx-grafana
+    hostname: grafana
+    environment:
+      # Basic settings
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-changeme}
+      - GF_SECURITY_SECRET_KEY=${GF_SECURITY_SECRET_KEY:-changeme123changeme123}
+      # TLS settings
+      - GF_SERVER_PROTOCOL=https
+      - GF_SERVER_CERT_FILE=/certs/server.crt
+      - GF_SERVER_CERT_KEY=/certs/server.key
+      - GF_SERVER_ROOT_URL=https://localhost:3000
+      # Plugin settings
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,yesoreyeram-infinity-datasource,grafana-piechart-panel
+      # SMTP settings
+      - GF_SMTP_ENABLED=${SMTP_ENABLED:-false}
+      - GF_SMTP_HOST=${SMTP_HOST:-smtp.gmail.com:587}
+      - GF_SMTP_USER=${SMTP_USER}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=${ALERT_EMAIL_FROM:-alerts@genx.ai}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/grafana-tls.ini:/etc/grafana/grafana.ini:ro
+      - grafana-data:/var/lib/grafana
+      # TLS certificates
+      - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
+      - ../infrastructure/certs/server/monitoring.crt:/certs/server.crt:ro
+      - ../infrastructure/certs/server/monitoring.key:/certs/server.key:ro
+      - ../infrastructure/certs/client/monitoring-client.crt:/certs/client.crt:ro
+      - ../infrastructure/certs/client/monitoring-client.key:/certs/client.key:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - genx-platform-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      com.genx.service: "grafana"
+      com.genx.component: "monitoring"
+      com.genx.tls: "enabled"
+
+  # Jaeger with TLS
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: genx-jaeger
+    hostname: jaeger
+    user: "0:0"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+      # TLS settings
+      - COLLECTOR_GRPC_TLS_ENABLED=true
+      - COLLECTOR_GRPC_TLS_CERT=/certs/server.crt
+      - COLLECTOR_GRPC_TLS_KEY=/certs/server.key
+      - COLLECTOR_GRPC_TLS_CLIENT_CA=/certs/ca.crt
+      - QUERY_GRPC_TLS_ENABLED=true
+      - QUERY_GRPC_TLS_CERT=/certs/server.crt
+      - QUERY_GRPC_TLS_KEY=/certs/server.key
+    volumes:
+      - jaeger-data:/badger
+      # TLS certificates
+      - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
+      - ../infrastructure/certs/server/monitoring.crt:/certs/server.crt:ro
+      - ../infrastructure/certs/server/monitoring.key:/certs/server.key:ro
+    ports:
+      - "16686:16686"     # Jaeger UI (HTTP - consider proxy)
+      - "14250:14250"     # gRPC with TLS
+      - "14268:14268"     # HTTP with TLS
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    labels:
+      com.genx.service: "jaeger"
+      com.genx.component: "monitoring"
+      com.genx.tls: "enabled"
+
+  # AlertManager with TLS
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: genx-alertmanager
+    hostname: alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=https://localhost:9093'
+      - '--web.config.file=/etc/alertmanager/web.yml'
+    volumes:
+      - ./alertmanager/config/config.yml:/etc/alertmanager/config.yml:ro
+      - ./alertmanager/web-config.yml:/etc/alertmanager/web.yml:ro
+      - alertmanager-data:/alertmanager
+      # TLS certificates
+      - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
+      - ../infrastructure/certs/server/monitoring.crt:/certs/server.crt:ro
+      - ../infrastructure/certs/server/monitoring.key:/certs/server.key:ro
+    ports:
+      - "9093:9093"
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    labels:
+      com.genx.service: "alertmanager"
+      com.genx.component: "monitoring"
+      com.genx.tls: "enabled"
+
+  # OpenTelemetry Collector with TLS
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: genx-otel-collector
+    hostname: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector/config/config-tls.yaml:/etc/otel-collector-config.yaml:ro
+      # TLS certificates
+      - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
+      - ../infrastructure/certs/server/otel-collector.crt:/certs/server.crt:ro
+      - ../infrastructure/certs/server/otel-collector.key:/certs/server.key:ro
+    ports:
+      - "4317:4317"     # OTLP gRPC with TLS
+      - "4319:4318"     # OTLP HTTP with TLS (mapped to different host port)
+      - "8888:8888"     # Prometheus metrics with TLS
+      - "8889:8889"     # Prometheus exporter
+      - "13133:13133"   # Health check
+      - "55679:55679"   # zPages
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    environment:
+      - OTEL_COLLECTOR_TLS_ENABLED=true
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+    labels:
+      com.genx.service: "otel-collector"
+      com.genx.component: "monitoring"
+      com.genx.tls: "enabled"
+
+  # Loki - Log Aggregation (TLS for ingestion)
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: genx-loki
+    hostname: loki
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki/config/loki-tls-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+      # TLS certificates
+      - ../infrastructure/certs/ca/ca.crt:/certs/ca.crt:ro
+      - ../infrastructure/certs/server/monitoring.crt:/certs/server.crt:ro
+      - ../infrastructure/certs/server/monitoring.key:/certs/server.key:ro
+    ports:
+      - "3100:3100"
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      com.genx.service: "loki"
+      com.genx.component: "monitoring"
+      com.genx.tls: "enabled"
+
+  # cAdvisor - Container Metrics (no TLS support, runs locally)
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: genx-cadvisor
+    hostname: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    labels:
+      com.genx.service: "cadvisor"
+      com.genx.component: "monitoring"
+      com.genx.tls: "unsupported"
+
+  # Node Exporter - Host Metrics (no TLS support natively)
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: genx-node-exporter
+    hostname: node-exporter
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - genx-platform-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    labels:
+      com.genx.service: "node-exporter"
+      com.genx.component: "monitoring"
+      com.genx.tls: "unsupported"
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  jaeger-data:
+    driver: local
+  loki-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+
+networks:
+  genx-platform-network:
+    external: true
+    name: genx-platform-network

@@ -126,75 +126,43 @@ class MetricsLogger:
             error=error
         )
     
-    def log_cache_operation(self, operation: str, key: str, hit: bool = None, ttl: float = None):
+    def log_cache_operation(self, operation: str, key: str, hit: bool = None):
         """Log cache operation"""
         self.logger.debug(
             "cache_operation",
             operation=operation,
             key=key,
-            hit=hit,
-            ttl=ttl
+            hit=hit
         )
     
-    def log_stream_event(self, stream_id: str, event: str, **kwargs):
-        """Log streaming event"""
+    def log_grpc_request(self, method: str, request_id: str, duration: float = None, status_code: str = None):
+        """Log gRPC request"""
         self.logger.info(
-            "stream_event",
-            stream_id=stream_id,
-            event=event,
-            **kwargs
+            "grpc_request",
+            method=method,
+            request_id=request_id,
+            duration_ms=int(duration * 1000) if duration else None,
+            status_code=status_code
         )
     
-    def log_alert(self, alert_type: str, resource: str, value: float, threshold: float, severity: str):
+    def log_alert(self, resource: str, metric: str, value: float, threshold: float):
         """Log resource alert"""
         self.logger.warning(
             "resource_alert",
-            alert_type=alert_type,
             resource=resource,
-            current_value=value,
+            metric=metric,
+            value=value,
             threshold=threshold,
-            severity=severity,
             exceeded=value > threshold
         )
     
-    def log_grpc_request(self, method: str, request_id: str, user_id: str = None):
-        """Log incoming gRPC request"""
-        self.logger.info(
-            "grpc_request_received",
-            method=method,
-            request_id=request_id,
-            user_id=user_id
-        )
-    
-    def log_grpc_response(self, method: str, request_id: str, status: str, duration: float):
-        """Log gRPC response"""
-        self.logger.info(
-            "grpc_response_sent",
-            method=method,
-            request_id=request_id,
-            status=status,
-            duration_ms=int(duration * 1000)
-        )
-    
-    def log_grpc_error(self, method: str, request_id: str, error: Exception, status_code: str):
-        """Log gRPC error"""
+    def log_error(self, operation: str, error: Exception, context: Dict[str, Any] = None):
+        """Log error with context"""
         self.logger.error(
-            "grpc_error",
-            method=method,
-            request_id=request_id,
+            f"{operation}_error",
             error=str(error),
             error_type=type(error).__name__,
-            status_code=status_code,
-            exc_info=True
-        )
-    
-    def log_collector_error(self, collector: str, error: Exception):
-        """Log collector error"""
-        self.logger.error(
-            "collector_error",
-            collector=collector,
-            error=str(error),
-            error_type=type(error).__name__,
+            context=context or {},
             exc_info=True
         )
     
@@ -270,6 +238,8 @@ def setup_prometheus_logging():
         return  # Prevent duplicate initialization
     
     try:
+        # Import prometheus_client only when needed
+        import prometheus_client
         from prometheus_client import Counter, Histogram, Gauge
         
         # Define Prometheus metrics
@@ -314,11 +284,12 @@ def setup_prometheus_logging():
         _prometheus_initialized = True
         
     except ImportError:
-        pass  # Prometheus not available
+        # Prometheus client not available, skip prometheus logging
+        pass
     except Exception as e:
         # Log the error but don't crash the application
         import logging
-        logging.error(f"Failed to setup Prometheus logging: {str(e)}")
+        logging.error(f"Failed to setup Prometheus logging: {e}")
 
 # Initialize Prometheus logging if available
 setup_prometheus_logging()

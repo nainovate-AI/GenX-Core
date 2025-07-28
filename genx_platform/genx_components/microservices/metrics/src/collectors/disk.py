@@ -162,49 +162,28 @@ class DiskCollector(BaseCollector):
                     if partition.fstype in ['squashfs', 'tmpfs', 'devtmpfs']:
                         continue
                     
-                    usage = psutil.disk_usage(partition.mountpoint)
+                    # Skip if mount point doesn't exist or is not accessible
+                    if not os.path.exists(partition.mountpoint):
+                        continue
                     
+                    usage = psutil.disk_usage(partition.mountpoint)
                     partition_data = {
                         'device': partition.device,
                         'mountpoint': partition.mountpoint,
-                        'filesystem': partition.fstype,
-                        'options': partition.opts.split(','),
+                        'fstype': partition.fstype,
+                        'options': partition.opts,
                         'total': usage.total,
                         'used': usage.used,
                         'free': usage.free,
                         'percent': round(usage.percent, 2),
-                        
-                        # Human-readable values
                         'total_gb': self._bytes_to_gb(usage.total),
-                        'used_gb': self._bytes_to_gb(usage.used),
-                        'free_gb': self._bytes_to_gb(usage.free),
-                        
-                        # Flags
-                        'is_readonly': 'ro' in partition.opts,
-                        'is_removable': self._is_removable_device(partition.device)
+                        'removable': self._is_removable_device(partition.device)
                     }
-                    
-                    # Add partition-specific I/O if available
-                    try:
-                        partition_io = psutil.disk_io_counters(perdisk=True).get(
-                            os.path.basename(partition.device).replace('/dev/', '')
-                        )
-                        if partition_io:
-                            partition_data['io'] = {
-                                'read_count': partition_io.read_count,
-                                'write_count': partition_io.write_count,
-                                'read_mb': self._bytes_to_mb(partition_io.read_bytes),
-                                'write_mb': self._bytes_to_mb(partition_io.write_bytes)
-                            }
-                    except Exception:
-                        pass
                     
                     partitions_data.append(partition_data)
                     
-                except PermissionError:
-                    logger.debug(f"Permission denied for partition {partition.mountpoint}")
-                except Exception as e:
-                    logger.warning(f"Failed to get metrics for partition {partition.device}: {e}")
+                except (PermissionError, OSError) as e:
+                    logger.debug(f"Failed to get metrics for partition {partition.device}: {e}")
             
         except Exception as e:
             logger.error(f"Failed to collect partition metrics: {e}")
@@ -220,11 +199,18 @@ class DiskCollector(BaseCollector):
         
         try:
             if model_metrics['exists'] and os.path.isdir(self._model_storage_path):
-                # Get storage stats
+                # Get storage stats using os.statvfs with correct attribute names
                 stat = os.statvfs(self._model_storage_path)
+                
+                # Calculate sizes using correct statvfs attributes
+                # f_blocks: total blocks in filesystem
+                # f_bfree: total free blocks
+                # f_bavail: free blocks available to non-superuser
+                # f_frsize: fundamental file system block size
+                
                 total = stat.f_blocks * stat.f_frsize
-                free = stat.f_avail * stat.f_frsize
-                used = total - free
+                free = stat.f_bavail * stat.f_frsize  # Changed from f_avail to f_bavail
+                used = total - (stat.f_bfree * stat.f_frsize)  # Use f_bfree for more accurate calculation
                 
                 model_metrics.update({
                     'total': total,

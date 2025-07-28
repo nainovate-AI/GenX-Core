@@ -1,0 +1,60 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+  
+  # TLS configuration for HTTP server
+  http_tls_config:
+    cert_file: /certs/server.crt
+    key_file: /certs/server.key
+    client_auth_type: VerifyClientCertIfGiven
+    client_ca_file: /certs/ca.crt
+  
+  # TLS configuration for gRPC server
+  grpc_tls_config:
+    cert_file: /certs/server.crt
+    key_file: /certs/server.key
+    client_auth_type: NoClientCert
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+
+ruler:
+  alertmanager_url: https://alertmanager:9093
+  enable_api: true
+  enable_alertmanager_v2: true
+
+querier:
+  engine:
+    timeout: 5m
+
+analytics:
+  reporting_enabled: false
+
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
