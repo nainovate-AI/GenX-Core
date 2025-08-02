@@ -1,0 +1,62 @@
+# monitoring-service/configs/alertmanager/alertmanager.yml
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'localhost:25'
+  smtp_from: 'alertmanager@monitoring.local'
+
+# The root route with default receiver
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'default'
+  
+  # Child routes
+  routes:
+    # Critical alerts
+    - match:
+        severity: critical
+      receiver: critical
+      continue: true
+      
+    # Service-specific routing
+    - match_re:
+        service: ^(prometheus|grafana|jaeger|loki)$
+      receiver: monitoring-team
+      
+    # Development environment
+    - match:
+        environment: development
+      receiver: dev-null  # Don't alert for dev
+
+# Receivers
+receivers:
+  # Default receiver
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://monitoring-api:8000/api/v1/alerts/webhook'
+        send_resolved: true
+  
+  # Critical alerts receiver
+  - name: 'critical'
+    webhook_configs:
+      - url: 'http://monitoring-api:8000/api/v1/alerts/critical'
+        send_resolved: true
+    # Add email/slack/pagerduty as needed
+  
+  # Monitoring team receiver
+  - name: 'monitoring-team'
+    webhook_configs:
+      - url: 'http://monitoring-api:8000/api/v1/alerts/monitoring'
+  
+  # Dev null receiver (no alerts)
+  - name: 'dev-null'
+
+# Inhibition rules
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']

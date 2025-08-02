@@ -1,0 +1,3 @@
+# monitoring-service/configs/jaeger/jaeger-config.yaml
+# Jaeger all-in-one is configured via environment variables in docker-compose.yml
+# This file is kept for future use if switching to production deployment with separate components

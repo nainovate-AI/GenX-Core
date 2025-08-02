@@ -1,0 +1,49 @@
+# monitoring-service/configs/grafana/provisioning/dashboards/dashboard.yml
+apiVersion: 1
+
+providers:
+  # Main dashboard provider
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    folderUid: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
+  
+  # Monitoring dashboards
+  - name: 'monitoring'
+    orgId: 1
+    folder: 'Monitoring'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/monitoring
+  
+  # Microservices dashboards
+  - name: 'microservices'
+    orgId: 1
+    folder: 'Microservices'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/microservices
+  
+  # System dashboards
+  - name: 'system'
+    orgId: 1
+    folder: 'System'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/system
